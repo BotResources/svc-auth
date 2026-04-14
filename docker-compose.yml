@@ -1,0 +1,26 @@
+services:
+  nats:
+    image: nats:2.10
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  svc-auth:
+    build: .
+    ports:
+      - "8002:8002"
+    env_file: .env
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
