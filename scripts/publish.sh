@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# publish.sh — check, build, and publish the svc-auth container image to GHCR.
+#
+# Source of truth for publishing is a git tag: v{version} matching Cargo.toml.
+# No tag = no publish.
+#
+# Modes:
+#   (default)     — full publish: tag required, checks + build + push to GHCR
+#   --dry-run     — checks + native build, NO push, NO tag required
+#   --check-only  — checks only (fmt, clippy, tests, audit), no build
+#   --skip-checks — skip checks (CI already validated), build + push only
+#
+# Usage:
+#   ./scripts/publish.sh                    # publish v{version} from Cargo.toml
+#   ./scripts/publish.sh --dry-run          # build locally, no push
+#   ./scripts/publish.sh --check-only       # checks only, no build
+#   ./scripts/publish.sh --skip-checks      # CD mode: build + push (CI passed)
+#
+# Environment:
+#   GHCR_TOKEN — required for publish mode
+#   GHCR_USER  — optional, defaults to git user name
+#   IMAGE      — optional, override image name (default: ghcr.io/botresources/br-svc-auth)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/validate.sh"
+source "$SCRIPT_DIR/lib/check.sh"
+source "$SCRIPT_DIR/lib/test.sh"
+source "$SCRIPT_DIR/lib/build-native-release.sh"
+source "$SCRIPT_DIR/lib/build-cross-amd64.sh"
+source "$SCRIPT_DIR/lib/build-cross-arm64.sh"
+
+MODE="publish"
+SKIP_CHECKS=false
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dry-run)      MODE="dry-run"; shift ;;
+        --check-only)   MODE="check-only"; shift ;;
+        --skip-checks)  SKIP_CHECKS=true; shift ;;
+        --) shift; break ;;
+        -*) echo "ERROR: unknown flag: $1" >&2; exit 2 ;;
+        *)  echo "ERROR: unexpected argument: $1" >&2; exit 2 ;;
+    esac
+done
+
+# ---------------------------------------------------------------------------
+# Step 0: must be on main, up to date
+# ---------------------------------------------------------------------------
+ensure_main
+
+VERSION="$(crate_version)"
+IMAGE_NAME="$(crate_image)"
+TAG="v${VERSION}"
+
+# ---------------------------------------------------------------------------
+# Step 1: in publish mode, verify the tag exists and is not already on GHCR
+# ---------------------------------------------------------------------------
+if [ "$MODE" = "publish" ]; then
+    if ! git tag -l "$TAG" | grep -q .; then
+        error "Tag '$TAG' does not exist. Create it with: git tag $TAG && git push origin $TAG"
+    fi
+
+    # Tag must be on main
+    TAG_COMMIT="$(git rev-list -n1 "$TAG")"
+    if ! git merge-base --is-ancestor "$TAG_COMMIT" HEAD; then
+        error "Tag '$TAG' points to a commit not on main"
+    fi
+
+    # Already published?
+    if docker manifest inspect "${IMAGE_NAME}:${VERSION}" >/dev/null 2>&1; then
+        info "${IMAGE_NAME}:${VERSION} already on GHCR — nothing to do"
+        exit 0
+    fi
+fi
+
+info "${CRATE_NAME} ${VERSION} → ${IMAGE_NAME}:${VERSION}"
+
+# ---------------------------------------------------------------------------
+# Step 2: fast validation (changelog)
+# ---------------------------------------------------------------------------
+validate_crate
+
+# ---------------------------------------------------------------------------
+# Step 3: checks + unit tests
+# ---------------------------------------------------------------------------
+if [ "$SKIP_CHECKS" = true ]; then
+    info "Skipping checks (--skip-checks)"
+else
+    run_crate_checks
+    run_crate_tests
+
+    if [ "$MODE" = "check-only" ]; then
+        info "Check-only complete — all checks passed"
+        exit 0
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Step 4: build binaries
+# ---------------------------------------------------------------------------
+if [ "$MODE" = "dry-run" ]; then
+    build_native_release
+else
+    build_cross_amd64
+    build_cross_arm64
+fi
+
+# ---------------------------------------------------------------------------
+# Step 5: package into Docker images (publish mode only)
+# ---------------------------------------------------------------------------
+if [ "$MODE" != "dry-run" ]; then
+    # --provenance=false disables attestation manifests that Docker Desktop
+    # adds by default. Without this, each image becomes a manifest list
+    # (instead of a plain manifest), and `docker manifest create` fails
+    # with "is a manifest list".
+
+    info "Packaging linux/amd64 image"
+    docker build \
+        --provenance=false \
+        --platform linux/amd64 \
+        --build-arg BIN_PATH="target/x86_64-unknown-linux-gnu/release/${CRATE_NAME}" \
+        --tag "${IMAGE_NAME}:${VERSION}-amd64" \
+        "$REPO_ROOT"
+
+    info "Packaging linux/arm64 image"
+    docker build \
+        --provenance=false \
+        --platform linux/arm64 \
+        --build-arg BIN_PATH="target/aarch64-unknown-linux-gnu/release/${CRATE_NAME}" \
+        --tag "${IMAGE_NAME}:${VERSION}-arm64" \
+        "$REPO_ROOT"
+fi
+
+# ---------------------------------------------------------------------------
+# Dry-run stops here
+# ---------------------------------------------------------------------------
+if [ "$MODE" = "dry-run" ]; then
+    echo ""
+    info "Dry-run complete — binary built at: target/release/${CRATE_NAME}"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Step 6: push to GHCR
+# ---------------------------------------------------------------------------
+info "Logging in to GHCR"
+echo "${GHCR_TOKEN:?GHCR_TOKEN must be set}" \
+    | docker login ghcr.io --username "${GHCR_USER:-$(git config user.name)}" --password-stdin
+
+info "Pushing arch-specific images"
+docker push "${IMAGE_NAME}:${VERSION}-amd64"
+docker push "${IMAGE_NAME}:${VERSION}-arm64"
+
+info "Creating multi-arch manifest"
+docker manifest create "${IMAGE_NAME}:${VERSION}" \
+    "${IMAGE_NAME}:${VERSION}-amd64" \
+    "${IMAGE_NAME}:${VERSION}-arm64"
+docker manifest push "${IMAGE_NAME}:${VERSION}"
+
+echo ""
+info "Published ${IMAGE_NAME}:${VERSION} (linux/amd64 + linux/arm64)"

@@ -39,6 +39,28 @@ OIDC providers are auto-detected at startup by scanning for `OIDC_*_DISCOVERY_UR
 - **Silent refresh** on expired access tokens via `auth_check`
 - **Bearer token validation** via SHA-256 hash lookup in NATS KV
 
+## Development
+
+### Git hooks
+
+Enable the repo's hooks (fmt + clippy + secret scan pre-commit, conventional-commit lint on commit-msg):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+### Publishing
+
+Bump `version` in `Cargo.toml`, add a matching `## {version}` entry in `CHANGELOG.md`, push to `main`. CI auto-tags `v{version}` and CD publishes the multi-arch image to `ghcr.io/botresources/br-svc-auth:{version}`.
+
+Manual publish / dry-run:
+
+```bash
+./scripts/publish.sh --dry-run      # local build, no push
+./scripts/publish.sh --check-only   # fmt + clippy + tests + audit only
+./scripts/publish.sh                # full publish (requires tag + GHCR_TOKEN)
+```
+
 ## License
 
 MIT

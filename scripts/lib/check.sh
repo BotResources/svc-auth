@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Crate checks: fmt, clippy, audit.
+#
+# Usage (sourced by publish.sh):
+#   source scripts/lib/check.sh
+#   run_crate_checks
+
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+run_crate_checks() {
+    cd "$REPO_ROOT"
+
+    info "Running crate checks"
+
+    info "  cargo fmt --check"
+    cargo fmt --check
+
+    info "  cargo clippy --all-targets"
+    cargo clippy --all-targets -- -D warnings
+
+    info "Running cargo audit"
+    if command -v cargo-audit >/dev/null 2>&1; then
+        cargo audit
+    else
+        warn "cargo-audit not installed — skipping (install with: cargo install cargo-audit)"
+    fi
+}

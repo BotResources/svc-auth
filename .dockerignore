@@ -1,8 +1,19 @@
-target/
+# The binary is pre-compiled outside Docker (by scripts/publish.sh), so the
+# target/ directory must be available in the build context. We only exclude
+# development noise and explicitly keep `target/` out of the default-ignore set.
+
 .git/
 .env
 .env.example
 README.md
 LICENSE
+CHANGELOG.md
 .gitignore
 .dockerignore
+.github/
+.githooks/
+scripts/
+docker-compose.yml
+src/
+Cargo.lock
+Cargo.toml
