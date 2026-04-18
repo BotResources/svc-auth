@@ -55,6 +55,8 @@ spec:
               value: {{ .Values.jwt.refreshTokenTtl | quote }}
             - name: SECURE_COOKIES
               value: {{ .Values.cookies.secure | quote }}
+            - name: AUTH_CHECK_SILENT_REFRESH
+              value: {{ .Values.authCheck.silentRefresh | quote }}
             - name: ENVIRONMENT
               value: {{ .Values.environment | quote }}
             - name: ALLOW_INSECURE

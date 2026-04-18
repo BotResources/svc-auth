@@ -122,7 +122,10 @@ async fn main() {
     );
 
     // -- Refresh token store (NATS KV) --
-    let refresh_store = Arc::new(RefreshTokenStore::new(refresh_tokens_kv, revoked_families_kv));
+    let refresh_store = Arc::new(RefreshTokenStore::new(
+        refresh_tokens_kv,
+        revoked_families_kv,
+    ));
 
     let state = AppState {
         jwt,
@@ -131,7 +134,15 @@ async fn main() {
         bearer_validator,
         cookie_config,
         allow_insecure: config.allow_insecure,
+        auth_check_silent_refresh: config.auth_check_silent_refresh,
     };
+
+    if !state.auth_check_silent_refresh {
+        tracing::info!(
+            "AUTH_CHECK_SILENT_REFRESH=false — /auth/check returns 401 on expired JWT; \
+             clients must call /auth/refresh explicitly"
+        );
+    }
 
     // -- CORS --
     let cors = CorsLayer::new()

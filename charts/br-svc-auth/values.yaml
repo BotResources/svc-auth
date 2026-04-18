@@ -40,6 +40,18 @@ jwt:
 cookies:
   secure: true
 
+# /auth/check behavior when the JWT cookie is expired or invalid.
+# - silentRefresh: true  (default, legacy nginx/OpenResty mode)
+#     Rotates tokens and returns 200 + Set-Cookie. Requires the auth
+#     middleware to forward Set-Cookie from auth responses to the client.
+# - silentRefresh: false (k8s ingress mode)
+#     Returns 401 on expired/invalid JWT. No rotation, no Set-Cookie.
+#     Required behind Traefik ForwardAuth, nginx-ingress auth-url, Envoy
+#     ExternalAuthz — they cannot forward Set-Cookie from auth responses.
+#     Clients catch 401 and call /auth/refresh explicitly (standard SPA).
+authCheck:
+  silentRefresh: true
+
 # Runtime environment tag propagated to svc-auth logs and config guards.
 # One of: local, dev, test, prod.
 environment: "prod"

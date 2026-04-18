@@ -60,12 +60,9 @@ impl OidcValidator {
             let issuer_url = IssuerUrl::new(config.discovery_url.clone())
                 .map_err(|e| format!("invalid discovery URL for {}: {e}", config.name))?;
 
-            let metadata =
-                CoreProviderMetadata::discover_async(issuer_url, &http_client)
-                    .await
-                    .map_err(|e| {
-                        format!("OIDC discovery failed for {}: {e}", config.name)
-                    })?;
+            let metadata = CoreProviderMetadata::discover_async(issuer_url, &http_client)
+                .await
+                .map_err(|e| format!("OIDC discovery failed for {}: {e}", config.name))?;
 
             let issuer = metadata.issuer().as_str().to_string();
 

@@ -17,6 +17,7 @@ pub struct AppConfig {
     pub environment: Environment,
     pub allow_insecure: bool,
     pub secure_cookies: bool,
+    pub auth_check_silent_refresh: bool,
     pub oidc_providers: Vec<OidcProviderConfig>,
 }
 
@@ -76,6 +77,12 @@ impl AppConfig {
 
         let secure_cookies = parse_bool_env("SECURE_COOKIES", true);
 
+        // Default true = preserves legacy nginx/OpenResty behavior. Set to
+        // false behind k8s ingress middlewares (Traefik ForwardAuth,
+        // nginx-ingress auth-url, Envoy ExternalAuthz) that cannot forward
+        // Set-Cookie from auth responses. See issue #1.
+        let auth_check_silent_refresh = parse_bool_env("AUTH_CHECK_SILENT_REFRESH", true);
+
         let oidc_providers = discover_oidc_providers(&environment)?;
 
         Ok(Self {
@@ -88,15 +95,14 @@ impl AppConfig {
             environment,
             allow_insecure,
             secure_cookies,
+            auth_check_silent_refresh,
             oidc_providers,
         })
     }
 }
 
 /// Auto-detect OIDC providers by scanning for OIDC_*_DISCOVERY_URL env vars.
-fn discover_oidc_providers(
-    environment: &Environment,
-) -> Result<Vec<OidcProviderConfig>, String> {
+fn discover_oidc_providers(environment: &Environment) -> Result<Vec<OidcProviderConfig>, String> {
     let suffix = "_DISCOVERY_URL";
     let prefix = "OIDC_";
 
@@ -123,8 +129,7 @@ fn discover_oidc_providers(
         }
 
         let email_claim_key = format!("OIDC_{name}_EMAIL_CLAIM");
-        let email_claim =
-            std::env::var(&email_claim_key).unwrap_or_else(|_| "email".to_string());
+        let email_claim = std::env::var(&email_claim_key).unwrap_or_else(|_| "email".to_string());
 
         providers.push(OidcProviderConfig {
             name: name.to_lowercase(),
@@ -142,7 +147,9 @@ fn discover_oidc_providers(
     }
 
     if providers.is_empty() {
-        tracing::warn!("no OIDC providers configured; id_token verification will require ALLOW_INSECURE=true");
+        tracing::warn!(
+            "no OIDC providers configured; id_token verification will require ALLOW_INSECURE=true"
+        );
     }
 
     Ok(providers)
@@ -167,8 +174,52 @@ fn parse_u16_env(name: &str, default: u16) -> u16 {
 }
 
 fn parse_bool_env(name: &str, default: bool) -> bool {
-    std::env::var(name)
-        .ok()
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(default)
+    parse_bool_value(std::env::var(name).ok().as_deref(), default)
+}
+
+/// Parse a bool from an optional string. Pure, side-effect-free (testable).
+fn parse_bool_value(value: Option<&str>, default: bool) -> bool {
+    value.map(|v| v == "true" || v == "1").unwrap_or(default)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_bool_defaults_to_true_when_unset() {
+        assert!(parse_bool_value(None, true));
+    }
+
+    #[test]
+    fn parse_bool_defaults_to_false_when_unset() {
+        assert!(!parse_bool_value(None, false));
+    }
+
+    #[test]
+    fn parse_bool_accepts_true_literal() {
+        assert!(parse_bool_value(Some("true"), false));
+    }
+
+    #[test]
+    fn parse_bool_accepts_one() {
+        assert!(parse_bool_value(Some("1"), false));
+    }
+
+    #[test]
+    fn parse_bool_rejects_false_literal() {
+        assert!(!parse_bool_value(Some("false"), true));
+    }
+
+    #[test]
+    fn parse_bool_rejects_zero() {
+        assert!(!parse_bool_value(Some("0"), true));
+    }
+
+    #[test]
+    fn parse_bool_rejects_empty_string() {
+        // Empty string is present-but-empty; not "true" or "1" → falls through
+        // to the map() comparison returning false (which the current rule does).
+        assert!(!parse_bool_value(Some(""), true));
+    }
 }

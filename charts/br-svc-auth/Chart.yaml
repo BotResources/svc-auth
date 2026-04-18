@@ -2,8 +2,8 @@ apiVersion: v2
 name: br-svc-auth
 description: Portable OIDC authentication gatekeeper. Signs internal JWTs, rotates refresh tokens in NATS KV, validates bearer tokens.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.1.1
+appVersion: "0.1.1"
 home: https://github.com/BotResources/svc-auth
 sources:
   - https://github.com/BotResources/svc-auth

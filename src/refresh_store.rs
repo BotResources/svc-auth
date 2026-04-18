@@ -124,4 +124,3 @@ pub enum StoreError {
     #[error("token not found: {0}")]
     NotFound(String),
 }
-

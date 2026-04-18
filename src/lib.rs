@@ -37,4 +37,10 @@ pub struct AppState {
     pub bearer_validator: Option<Arc<BearerValidator>>,
     pub cookie_config: CookieConfig,
     pub allow_insecure: bool,
+    /// When false, `/auth/check` does not rotate refresh tokens on expired
+    /// JWT — it returns 401 instead. Clients must call `/auth/refresh`
+    /// explicitly. Set this for k8s ingress middlewares that cannot forward
+    /// Set-Cookie from auth responses (Traefik ForwardAuth, nginx-ingress
+    /// auth-url, Envoy ExternalAuthz).
+    pub auth_check_silent_refresh: bool,
 }
