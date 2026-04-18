@@ -5,14 +5,18 @@
 # No tag = no publish.
 #
 # Modes:
-#   (default)     — full publish: tag required, checks + build + push to GHCR
-#   --dry-run     — checks + native build, NO push, NO tag required
-#   --check-only  — checks only (fmt, clippy, tests, audit), no build
-#   --skip-checks — skip checks (CI already validated), build + push only
+#   (default)      — full publish: tag required, checks + build + push to GHCR
+#   --dry-run      — checks + native build, NO docker, NO push, NO tag required
+#   --local-image  — build a runnable Docker image for the host arch, NO push,
+#                    NO tag required, NO main-branch required, checks skipped.
+#                    Produces {image}:{version}-local.
+#   --check-only   — checks only (fmt, clippy, tests, audit), no build
+#   --skip-checks  — skip checks (CI already validated), build + push only
 #
 # Usage:
 #   ./scripts/publish.sh                    # publish v{version} from Cargo.toml
-#   ./scripts/publish.sh --dry-run          # build locally, no push
+#   ./scripts/publish.sh --local-image      # build local-runnable docker image
+#   ./scripts/publish.sh --dry-run          # build binary only, no docker, no push
 #   ./scripts/publish.sh --check-only       # checks only, no build
 #   ./scripts/publish.sh --skip-checks      # CD mode: build + push (CI passed)
 #
@@ -39,6 +43,7 @@ SKIP_CHECKS=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run)      MODE="dry-run"; shift ;;
+        --local-image)  MODE="local-image"; shift ;;
         --check-only)   MODE="check-only"; shift ;;
         --skip-checks)  SKIP_CHECKS=true; shift ;;
         --) shift; break ;;
@@ -47,14 +52,57 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# ---------------------------------------------------------------------------
-# Step 0: must be on main, up to date
-# ---------------------------------------------------------------------------
-ensure_main
-
 VERSION="$(crate_version)"
 IMAGE_NAME="$(crate_image)"
 TAG="v${VERSION}"
+
+# ---------------------------------------------------------------------------
+# --local-image — fast path for local iteration. Cross-compile for the host
+# arch only, docker build, tag {image}:{version}-local, exit. Everything
+# else is skipped: no main-branch requirement, no tag check, no changelog
+# validation, no checks, no push.
+# ---------------------------------------------------------------------------
+if [ "$MODE" = "local-image" ]; then
+    case "$(uname -m)" in
+        arm64|aarch64)
+            PLATFORM="linux/arm64"
+            TARGET_TRIPLE="aarch64-unknown-linux-gnu"
+            ;;
+        x86_64|amd64)
+            PLATFORM="linux/amd64"
+            TARGET_TRIPLE="x86_64-unknown-linux-gnu"
+            ;;
+        *)
+            error "Unsupported host arch: $(uname -m). Use --dry-run + manual docker build."
+            ;;
+    esac
+
+    LOCAL_TAG="${IMAGE_NAME}:${VERSION}-local"
+
+    info "${CRATE_NAME} ${VERSION} → ${LOCAL_TAG} (${PLATFORM})"
+
+    cd "$REPO_ROOT"
+    info "Cross-compiling for $TARGET_TRIPLE"
+    cross build --release --target "$TARGET_TRIPLE"
+
+    info "Packaging $PLATFORM image"
+    docker build \
+        --provenance=false \
+        --platform "$PLATFORM" \
+        --build-arg BIN_PATH="target/$TARGET_TRIPLE/release/${CRATE_NAME}" \
+        --tag "$LOCAL_TAG" \
+        "$REPO_ROOT"
+
+    echo ""
+    info "Built $LOCAL_TAG"
+    info "Run it with: docker run --rm -p 8002:8002 --env-file .env $LOCAL_TAG"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Step 0: must be on main, up to date (publish / dry-run / check-only)
+# ---------------------------------------------------------------------------
+ensure_main
 
 # ---------------------------------------------------------------------------
 # Step 1: in publish mode, verify the tag exists and is not already on GHCR

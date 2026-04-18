@@ -56,10 +56,13 @@ Bump `version` in `Cargo.toml`, add a matching `## {version}` entry in `CHANGELO
 Manual publish / dry-run:
 
 ```bash
-./scripts/publish.sh --dry-run      # local build, no push
+./scripts/publish.sh --local-image  # runnable docker image for host arch
+./scripts/publish.sh --dry-run      # binary only, no docker, no push
 ./scripts/publish.sh --check-only   # fmt + clippy + tests + audit only
 ./scripts/publish.sh                # full publish (requires tag + GHCR_TOKEN)
 ```
+
+`--local-image` produces `ghcr.io/botresources/br-svc-auth:{version}-local` — cross-compiled for the host arch, packaged into the runtime image. Works on any branch, no checks, for fast iteration.
 
 ## License
 
