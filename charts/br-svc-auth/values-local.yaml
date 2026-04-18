@@ -19,6 +19,11 @@ allowInsecure: true    # Skip OIDC verification (LOCAL ONLY)
 cookies:
   secure: false        # Cookies over plain HTTP in K3d
 
+# K3d with Traefik (default ingress controller): disable silent refresh.
+# Traefik's ForwardAuth middleware cannot forward Set-Cookie from /auth/check.
+authCheck:
+  silentRefresh: false
+
 logLevel: "debug"
 
 jwt:

@@ -79,14 +79,10 @@ async fn handle_token(state: &AppState, body: &TokenRequest) -> Result<Response,
             parse_insecure_claims(id_token).map_err(AppError::Unauthorized)?
         }
     } else {
-        state
-            .oidc
-            .verify_id_token(id_token)
-            .await
-            .map_err(|msg| {
-                tracing::warn!(error = %msg, "OIDC id_token verification failed");
-                AppError::Unauthorized(msg)
-            })?
+        state.oidc.verify_id_token(id_token).await.map_err(|msg| {
+            tracing::warn!(error = %msg, "OIDC id_token verification failed");
+            AppError::Unauthorized(msg)
+        })?
     };
 
     let email = &claims.email;

@@ -1,9 +1,21 @@
-//! GET /auth/check -- nginx auth_request endpoint.
+//! GET /auth/check -- auth subrequest endpoint.
 //!
-//! Called by nginx on every proxied request. Validates credentials (JWT cookie
-//! or bearer token) and performs silent refresh when the JWT is expired.
+//! Called by nginx `auth_request` or k8s ingress middlewares on every proxied
+//! request. Validates credentials (JWT cookie or bearer token).
 //!
-//! Always returns 200. Invalid credentials are treated as anonymous.
+//! Two behaviors, toggled by `AppState.auth_check_silent_refresh`:
+//!
+//! **true (default)** -- legacy nginx/OpenResty mode. On expired JWT, rotate
+//! tokens and return 200 + Set-Cookie. On invalid JWT, return 200 + clear
+//! cookies. Always 200; the middleware forwards the new cookies to the client.
+//!
+//! **false** -- k8s ingress mode (Traefik ForwardAuth, nginx-ingress
+//! `auth-url`, Envoy ExternalAuthz). On expired / invalid / corrupt JWT,
+//! return 401. No token rotation, no Set-Cookie. The client catches 401 and
+//! calls `/auth/refresh` explicitly (standard SPA pattern).
+//!
+//! Valid JWT, valid bearer, unknown bearer, and no-credentials branches
+//! return 200 in both modes.
 //!
 //! svc-auth does NOT build Passports or resolve identity. It validates
 //! credentials and lets them through or treats them as anonymous.
@@ -35,7 +47,8 @@ pub async fn auth_check_handler(State(state): State<AppState>, headers: HeaderMa
     StatusCode::OK.into_response()
 }
 
-/// Handle JWT cookie validation with silent refresh on expiry.
+/// Handle JWT cookie validation. Behavior on expired / invalid JWT depends
+/// on AppState.auth_check_silent_refresh.
 async fn handle_jwt_cookie(state: &AppState, token: &str, headers: &HeaderMap) -> Response {
     match state.jwt.verify_access_token(token) {
         Ok(_claims) => {
@@ -43,13 +56,21 @@ async fn handle_jwt_cookie(state: &AppState, token: &str, headers: &HeaderMap) -
             StatusCode::OK.into_response()
         }
         Err(JwtError::Expired) => {
-            // Expired JWT -- attempt silent refresh.
-            silent_refresh(state, headers).await
+            if state.auth_check_silent_refresh {
+                silent_refresh(state, headers).await
+            } else {
+                tracing::debug!("auth_check: expired JWT, silent refresh disabled, 401");
+                StatusCode::UNAUTHORIZED.into_response()
+            }
         }
         Err(_) => {
-            // Corrupted/invalid signature -- clear cookies, anonymous.
-            tracing::debug!("auth_check: invalid JWT cookie, clearing cookies");
-            clear_cookies_response(state)
+            if state.auth_check_silent_refresh {
+                tracing::debug!("auth_check: invalid JWT cookie, clearing cookies");
+                clear_cookies_response(state)
+            } else {
+                tracing::debug!("auth_check: invalid JWT cookie, silent refresh disabled, 401");
+                StatusCode::UNAUTHORIZED.into_response()
+            }
         }
     }
 }
@@ -152,7 +173,11 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
     }
 
     // Now mark old token as used (new row exists, FK satisfied).
-    if let Err(e) = state.refresh_store.mark_used(jti, new_token_id, revision).await {
+    if let Err(e) = state
+        .refresh_store
+        .mark_used(jti, new_token_id, revision)
+        .await
+    {
         tracing::error!(error = %e, "auth_check: failed to mark old refresh token as used");
         return clear_cookies_response(state);
     }
