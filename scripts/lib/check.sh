@@ -24,4 +24,11 @@ run_crate_checks() {
     else
         warn "cargo-audit not installed — skipping (install with: cargo install cargo-audit)"
     fi
+
+    if command -v helm >/dev/null 2>&1; then
+        info "  helm lint charts/br-svc-auth"
+        helm lint "$REPO_ROOT/charts/br-svc-auth"
+    else
+        warn "helm not installed — skipping chart lint"
+    fi
 }

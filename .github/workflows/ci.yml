@@ -24,6 +24,10 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
 
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
       - name: cargo fmt
         run: cargo fmt --check
 
@@ -32,6 +36,12 @@ jobs:
 
       - name: Unit tests
         run: cargo test --lib
+
+      - name: helm lint chart
+        run: helm lint charts/br-svc-auth
+
+      - name: helm template dry-run
+        run: helm template ci charts/br-svc-auth --debug > /dev/null
 
   audit:
     name: Security audit

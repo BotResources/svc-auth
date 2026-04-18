@@ -1,0 +1,24 @@
+br-svc-auth {{ .Chart.AppVersion }} installed in namespace {{ .Release.Namespace }}.
+
+Service: {{ include "br-svc-auth.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.port }}
+
+Endpoints (in-cluster):
+  POST   http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/auth/token
+  POST   http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/auth/refresh
+  GET    http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/auth/check
+  POST   http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/auth/logout
+  GET    http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/health
+
+{{- if not .Values.oidcProviders }}
+
+WARNING: no OIDC providers configured. /auth/token will fail unless ALLOW_INSECURE=true.
+         Set oidcProviders[] in your values file.
+{{- end }}
+
+{{- if .Values.allowInsecure }}
+
+WARNING: allowInsecure=true. OIDC signature verification is disabled — LOCAL DEV ONLY.
+{{- end }}
+
+JWT signing secret must exist in Kubernetes Secret "{{ .Values.jwt.secret.existingSecret }}"
+under key "{{ .Values.jwt.secret.existingSecretKey }}". The chart does not create it.

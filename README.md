@@ -39,6 +39,20 @@ OIDC providers are auto-detected at startup by scanning for `OIDC_*_DISCOVERY_UR
 - **Silent refresh** on expired access tokens via `auth_check`
 - **Bearer token validation** via SHA-256 hash lookup in NATS KV
 
+## Kubernetes deployment
+
+A minimal Helm chart is published to `oci://ghcr.io/botresources/charts/br-svc-auth` alongside each image release. See [`charts/br-svc-auth/`](charts/br-svc-auth/) for the chart source and [`charts/br-svc-auth/values-local.yaml`](charts/br-svc-auth/values-local.yaml) for a K3d example.
+
+```bash
+kubectl create secret generic br-svc-auth-jwt \
+  --from-literal=secret="$(openssl rand -base64 48)"
+
+helm install auth \
+  oci://ghcr.io/botresources/charts/br-svc-auth \
+  --version 0.1.0 \
+  -f my-values.yaml
+```
+
 ## Development
 
 ### Git hooks

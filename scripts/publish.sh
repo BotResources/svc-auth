@@ -21,9 +21,10 @@
 #   ./scripts/publish.sh --skip-checks      # CD mode: build + push (CI passed)
 #
 # Environment:
-#   GHCR_TOKEN — required for publish mode
-#   GHCR_USER  — optional, defaults to git user name
-#   IMAGE      — optional, override image name (default: ghcr.io/botresources/br-svc-auth)
+#   GHCR_TOKEN  — required for publish mode
+#   GHCR_USER   — optional, defaults to git user name
+#   IMAGE       — optional, override image name (default: ghcr.io/botresources/br-svc-auth)
+#   CHART_REPO  — optional, override chart OCI repo (default: oci://ghcr.io/botresources/charts)
 
 set -euo pipefail
 
@@ -209,5 +210,36 @@ docker manifest create "${IMAGE_NAME}:${VERSION}" \
     "${IMAGE_NAME}:${VERSION}-arm64"
 docker manifest push "${IMAGE_NAME}:${VERSION}"
 
+# ---------------------------------------------------------------------------
+# Step 7: package + push Helm chart
+# ---------------------------------------------------------------------------
+CHART_DIR="$REPO_ROOT/charts/br-svc-auth"
+CHART_REPO="${CHART_REPO:-oci://ghcr.io/botresources/charts}"
+
+if [ ! -d "$CHART_DIR" ]; then
+    error "Helm chart not found at $CHART_DIR"
+fi
+if ! command -v helm >/dev/null 2>&1; then
+    error "helm not installed — required for chart publish"
+fi
+
+info "Logging helm into GHCR registry"
+echo "$GHCR_TOKEN" \
+    | helm registry login ghcr.io --username "${GHCR_USER:-$(git config user.name)}" --password-stdin
+
+info "Packaging Helm chart"
+CHART_OUT="$(mktemp -d)"
+helm package "$CHART_DIR" \
+    --version "$VERSION" \
+    --app-version "$VERSION" \
+    --destination "$CHART_OUT"
+
+CHART_TGZ="$CHART_OUT/br-svc-auth-${VERSION}.tgz"
+[ -f "$CHART_TGZ" ] || error "chart tgz not produced at $CHART_TGZ"
+
+info "Pushing chart to $CHART_REPO"
+helm push "$CHART_TGZ" "$CHART_REPO"
+
 echo ""
 info "Published ${IMAGE_NAME}:${VERSION} (linux/amd64 + linux/arm64)"
+info "Published chart ${CHART_REPO}/br-svc-auth:${VERSION}"
