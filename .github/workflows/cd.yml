@@ -38,6 +38,13 @@ jobs:
         with:
           version: v3.16.2
 
+      # QEMU emulators for building linux/arm64 images on amd64 runners.
+      # Without this, `docker build --platform linux/arm64` fails at the first
+      # RUN instruction with "exec format error" because the container's shell
+      # is the non-native architecture.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross --locked
 
