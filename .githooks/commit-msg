@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+COMMIT_MSG_FILE="$1"
+COMMIT_MSG=$(head -1 "$COMMIT_MSG_FILE")
+
+# Allow merge commits
+if echo "$COMMIT_MSG" | grep -qE '^Merge '; then
+    exit 0
+fi
+
+# Conventional commit format: type(scope): message
+# Allowed types: feat, fix, refactor, docs, chore, test, ci
+PATTERN='^(feat|fix|refactor|docs|chore|test|ci)(\([a-z0-9_-]+\))?(!)?: .+'
+
+if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
+    echo ""
+    echo "ERROR: Commit message does not follow conventional commit format."
+    echo ""
+    echo "  Expected: type(scope): message"
+    echo "  Types:    feat, fix, refactor, docs, chore, test, ci"
+    echo "  Example:  feat(auth): add refresh rotation"
+    echo ""
+    echo "  Got: $COMMIT_MSG"
+    exit 1
+fi

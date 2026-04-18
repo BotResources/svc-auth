@@ -1,0 +1,117 @@
+# Default values for br-svc-auth.
+# Consuming projects override only what differs from these defaults.
+
+image:
+  repository: ghcr.io/botresources/br-svc-auth
+  # Defaults to the chart's appVersion (set in Chart.yaml, kept in lockstep
+  # with the Rust crate version). Override to pin a different tag.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+replicaCount: 1
+
+# Port exposed by the container and Service. Must match the PORT env var
+# (defaults to 8002 in svc-auth).
+port: 8002
+
+# NATS connection. Required — svc-auth has no Postgres and relies on NATS
+# KV for refresh tokens, revoked families, and bearer validation.
+nats:
+  # URL of the NATS server reachable from within the cluster.
+  url: "nats://nats:4222"
+
+# JWT configuration. The signing secret is read from an existing Kubernetes
+# Secret — the chart never generates it.
+jwt:
+  issuer: "svc-auth"
+  accessTokenTtl: 900      # seconds (15 minutes)
+  refreshTokenTtl: 604800  # seconds (7 days)
+  secret:
+    # Name of an existing Secret holding the JWT signing secret.
+    # The chart never generates it.
+    existingSecret: "br-svc-auth-jwt"
+    # Key inside the Secret that holds the signing value.
+    existingSecretKey: "secret"
+
+# Cookie behavior. SECURE_COOKIES=true enables __Host- prefix and Secure
+# flag (production over HTTPS). Set to false only behind pure HTTP in dev.
+cookies:
+  secure: true
+
+# Runtime environment tag propagated to svc-auth logs and config guards.
+# One of: local, dev, test, prod.
+environment: "prod"
+
+# When true, OIDC signature verification is skipped. NEVER enable in prod.
+allowInsecure: false
+
+# OIDC provider auto-discovery. Each entry becomes a set of env vars:
+#   OIDC_{NAME}_DISCOVERY_URL
+#   OIDC_{NAME}_CLIENT_ID
+#   OIDC_{NAME}_EMAIL_CLAIM  (optional)
+# NAME is uppercased from the entry's `name` field.
+oidcProviders: []
+# Example:
+# - name: entra
+#   discoveryUrl: "https://login.microsoftonline.com/{tenant}/v2.0"
+#   clientId: "your-client-id"
+#   emailClaim: "preferred_username"
+# - name: google
+#   discoveryUrl: "https://accounts.google.com"
+#   clientId: "your-client-id"
+
+# Log filter (tracing_subscriber env filter syntax).
+logLevel: "info"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Probes hit the /health endpoint which returns 503 if NATS KV buckets
+# are unreachable. Liveness uses a TCP port check so transient NATS outages
+# do not restart the pod.
+probes:
+  readiness:
+    path: /health
+    initialDelaySeconds: 3
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 2
+    failureThreshold: 3
+
+service:
+  type: ClusterIP
+  annotations: {}
+
+serviceAccount:
+  create: true
+  annotations: {}
+  # If create=false, the pod uses this existing ServiceAccount name.
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  fsGroup: 65532
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -39,6 +39,45 @@ OIDC providers are auto-detected at startup by scanning for `OIDC_*_DISCOVERY_UR
 - **Silent refresh** on expired access tokens via `auth_check`
 - **Bearer token validation** via SHA-256 hash lookup in NATS KV
 
+## Kubernetes deployment
+
+A minimal Helm chart is published to `oci://ghcr.io/botresources/charts/br-svc-auth` alongside each image release. See [`charts/br-svc-auth/`](charts/br-svc-auth/) for the chart source and [`charts/br-svc-auth/values-local.yaml`](charts/br-svc-auth/values-local.yaml) for a K3d example.
+
+```bash
+kubectl create secret generic br-svc-auth-jwt \
+  --from-literal=secret="$(openssl rand -base64 48)"
+
+helm install auth \
+  oci://ghcr.io/botresources/charts/br-svc-auth \
+  --version 0.1.0 \
+  -f my-values.yaml
+```
+
+## Development
+
+### Git hooks
+
+Enable the repo's hooks (fmt + clippy + secret scan pre-commit, conventional-commit lint on commit-msg):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+### Publishing
+
+Bump `version` in `Cargo.toml`, add a matching `## {version}` entry in `CHANGELOG.md`, push to `main`. CI auto-tags `v{version}` and CD publishes the multi-arch image to `ghcr.io/botresources/br-svc-auth:{version}`.
+
+Manual publish / dry-run:
+
+```bash
+./scripts/publish.sh --local-image  # runnable docker image for host arch
+./scripts/publish.sh --dry-run      # binary only, no docker, no push
+./scripts/publish.sh --check-only   # fmt + clippy + tests + audit only
+./scripts/publish.sh                # full publish (requires tag + GHCR_TOKEN)
+```
+
+`--local-image` produces `ghcr.io/botresources/br-svc-auth:{version}-local` — cross-compiled for the host arch, packaged into the runtime image. Works on any branch, no checks, for fast iteration.
+
 ## License
 
 MIT

@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: cargo fmt
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --lib
+
+      - name: helm lint chart
+        run: helm lint charts/br-svc-auth
+
+      - name: helm template dry-run
+        run: helm template ci charts/br-svc-auth --debug > /dev/null
+
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Auto-tag: on push to main (not PR), if Cargo.toml version has no matching
+  # git tag, create it. This triggers cd.yml which publishes the image.
+  # ---------------------------------------------------------------------------
+  auto-tag:
+    name: Auto-tag on version bump
+    needs: [check, audit]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Create tag if version bumped
+        run: |
+          version="$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          [ -n "$version" ] || { echo "ERROR: no version in Cargo.toml"; exit 1; }
+
+          tag="v${version}"
+
+          if git tag -l "$tag" | grep -q .; then
+            echo "Tag $tag already exists — nothing to do"
+            exit 0
+          fi
+
+          # Verify changelog entry exists before tagging
+          if [ ! -f CHANGELOG.md ]; then
+            echo "::warning::CHANGELOG.md missing — skipping tag"
+            exit 0
+          fi
+          if ! grep -qE "^## ${version}( |$)" CHANGELOG.md; then
+            echo "::warning::CHANGELOG.md has no '## $version' heading — skipping tag"
+            exit 0
+          fi
+
+          echo "Creating tag $tag"
+          git tag "$tag"
+          git push origin "$tag"

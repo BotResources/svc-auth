@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "==> pre-commit: cargo fmt --check"
+cargo fmt --check
+
+echo "==> pre-commit: cargo clippy"
+cargo clippy --all-targets -- -D warnings
+
+echo "==> pre-commit: secret detection"
+# Scan staged files for common secret patterns
+SECRETS_PATTERN='PRIVATE_KEY|sk-|password\s*=\s*["\x27][^"\x27]|AWS_SECRET|API_KEY\s*=\s*["\x27][^"\x27]'
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+EXCLUDE_PATTERN='\.github/|\.githooks/'
+
+if [ -n "$STAGED_FILES" ]; then
+    SCAN_FILES=$(echo "$STAGED_FILES" | grep -vE "$EXCLUDE_PATTERN" || true)
+    if [ -n "$SCAN_FILES" ] && echo "$SCAN_FILES" | xargs grep -lEi "$SECRETS_PATTERN" 2>/dev/null; then
+        echo ""
+        echo "ERROR: Potential secrets detected in staged files (see above)."
+        echo "If these are false positives, review carefully before committing."
+        exit 1
+    fi
+
+    # Block non-example .env files
+    if echo "$STAGED_FILES" | grep -E '^\.env($|\.)' | grep -v '\.example$' 2>/dev/null; then
+        echo ""
+        echo "ERROR: .env file staged for commit. Only .env.example is allowed."
+        exit 1
+    fi
+fi
+
+echo "==> pre-commit: all checks passed"

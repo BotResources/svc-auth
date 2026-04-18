@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "br-svc-auth.fullname" . }}
+  labels:
+    {{- include "br-svc-auth.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "br-svc-auth.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "br-svc-auth.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "br-svc-auth.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: {{ include "br-svc-auth.imageRef" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: {{ .Values.port | quote }}
+            - name: NATS_URL
+              value: {{ .Values.nats.url | quote }}
+            - name: JWT_ISSUER
+              value: {{ .Values.jwt.issuer | quote }}
+            - name: JWT_ACCESS_TOKEN_TTL
+              value: {{ .Values.jwt.accessTokenTtl | quote }}
+            - name: JWT_REFRESH_TOKEN_TTL
+              value: {{ .Values.jwt.refreshTokenTtl | quote }}
+            - name: SECURE_COOKIES
+              value: {{ .Values.cookies.secure | quote }}
+            - name: ENVIRONMENT
+              value: {{ .Values.environment | quote }}
+            - name: ALLOW_INSECURE
+              value: {{ .Values.allowInsecure | quote }}
+            - name: RUST_LOG
+              value: {{ .Values.logLevel | quote }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.jwt.secret.existingSecret | quote }}
+                  key: {{ .Values.jwt.secret.existingSecretKey | quote }}
+            {{- range .Values.oidcProviders }}
+            - name: OIDC_{{ .name | upper }}_DISCOVERY_URL
+              value: {{ .discoveryUrl | quote }}
+            - name: OIDC_{{ .name | upper }}_CLIENT_ID
+              value: {{ .clientId | quote }}
+            {{- if .emailClaim }}
+            - name: OIDC_{{ .name | upper }}_EMAIL_CLAIM
+              value: {{ .emailClaim | quote }}
+            {{- end }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

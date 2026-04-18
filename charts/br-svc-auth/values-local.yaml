@@ -1,0 +1,38 @@
+# Example values for local K3d / K3s testing.
+# Use with:
+#   kubectl create secret generic br-svc-auth-jwt --from-literal=secret=dev-only-secret
+#   helm install auth charts/br-svc-auth -f charts/br-svc-auth/values-local.yaml
+
+image:
+  # Pull from the locally-built image. Import into K3d beforehand with:
+  #   k3d image import ghcr.io/botresources/br-svc-auth:0.1.0-local -c <cluster>
+  tag: "0.1.0-local"
+  pullPolicy: IfNotPresent
+
+# Assumes a NATS release named "nats" in the same namespace.
+# Install one with: helm install nats nats/nats --set jetstream.enabled=true
+nats:
+  url: "nats://nats:4222"
+
+environment: "local"
+allowInsecure: true    # Skip OIDC verification (LOCAL ONLY)
+cookies:
+  secure: false        # Cookies over plain HTTP in K3d
+
+logLevel: "debug"
+
+jwt:
+  secret:
+    existingSecret: "br-svc-auth-jwt"
+    existingSecretKey: "secret"
+
+# No OIDC providers — /auth/token only works with ALLOW_INSECURE=true.
+oidcProviders: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 128Mi
