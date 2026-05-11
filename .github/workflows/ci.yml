@@ -16,7 +16,7 @@ permissions:
 jobs:
   check:
     name: Checks
-    runs-on: ubuntu-latest
+    runs-on: arc-ubuntu
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -45,7 +45,7 @@ jobs:
 
   audit:
     name: Security audit
-    runs-on: ubuntu-latest
+    runs-on: arc-ubuntu
     permissions:
       contents: read
       checks: write
@@ -72,7 +72,7 @@ jobs:
     name: Auto-tag on version bump
     needs: [check, audit]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: arc-ubuntu
     permissions:
       contents: write
     steps:
