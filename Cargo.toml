@@ -23,7 +23,7 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 openidconnect = { version = "4", features = ["reqwest"] }
 
 # Messaging (NATS KV for refresh tokens + bearer validation)
-async-nats = "0.46"
+async-nats = "0.48"
 
 # Types & utilities
 uuid = { version = "1", features = ["v7", "serde"] }
