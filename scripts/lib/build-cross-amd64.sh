@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Native cross-compile for linux/amd64 (x86_64-unknown-linux-gnu).
+# Static-musl cross-compile for linux/amd64 (x86_64-unknown-linux-musl).
 #
-# Uses the host's `cargo` directly. We deliberately avoid `cross` here:
-# `cross build` spins up a Docker container that bind-mounts the host's
-# rustup toolchain, which silently fails in Docker-in-Docker setups
-# (ARC self-hosted runners on Kubernetes). See cross-rs/cross#260.
+# Uses cargo-zigbuild with Zig as the C compiler. We deliberately avoid
+# `cross` (DinD bind-mount fails on ARC runners, cross-rs/cross#260) and
+# the system `gcc-aarch64-linux-gnu` + glibc path (runner-vs-runtime
+# GLIBC skew has shipped CrashLoop releases before, see
+# br-graphql-gateway#29). Static-musl decouples the binary from the
+# runtime image's libc entirely.
 #
-# Prerequisites (CI: pre-baked into br-arc-runner; local: install via
-# rustup + a working amd64 linker on non-Linux hosts):
-#   rustup target add x86_64-unknown-linux-gnu
+# Prerequisites (CI: installed in cd.yml; local Linux/macOS:
+# `rustup target add x86_64-unknown-linux-musl`, install Zig + run
+# `cargo install cargo-zigbuild`):
 #
 # Usage:
 #   source scripts/lib/build-cross-amd64.sh
@@ -17,11 +19,11 @@
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 build_cross_amd64() {
-    local target="x86_64-unknown-linux-gnu"
+    local target="x86_64-unknown-linux-musl"
     cd "$REPO_ROOT"
 
-    info "Native cross-compiling ${CRATE_NAME} for $target"
-    cargo build --release --locked --target "$target"
+    info "Static-musl cross-compiling ${CRATE_NAME} for $target"
+    cargo zigbuild --release --locked --target "$target"
 
     local bin="target/$target/release/${CRATE_NAME}"
     if [ ! -f "$bin" ]; then

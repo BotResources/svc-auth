@@ -21,21 +21,11 @@ env:
 jobs:
   publish:
     name: Publish
+    # The arc-ubuntu runner pool already runs on
+    # `ghcr.io/botresources/br-arc-runner:stable`, which ships rust +
+    # docker-cli + helm + the basic build toolchain. No `container:`
+    # block needed.
     runs-on: arc-ubuntu
-    # Run inside our custom runner image. It ships rust + sccache +
-    # gcc-aarch64-linux-gnu + libc6-dev-arm64-cross + docker-cli + helm,
-    # which lets us native-cross-compile both amd64 and arm64 binaries
-    # without `cross` (avoids DinD bind-mount issues, see
-    # cross-rs/cross#260) and without QEMU emulation. sccache + cargo
-    # caches are shared with PR runs via the host volume mounts.
-    container:
-      image: ghcr.io/botresources/br-arc-runner:stable
-      volumes:
-        - /cache/sccache:/cache/sccache
-        - /cache/cargo:/cache/cargo
-    # GitHub Actions inside a `container:` defaults `run:` to `sh -e {0}`.
-    # publish.sh uses `[[ ]]`, `=~`, `BASH_REMATCH` — all bash-specific —
-    # so opt into bash explicitly here.
     defaults:
       run:
         shell: bash
@@ -45,18 +35,40 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # Static-musl cross-compile via cargo-zigbuild (Zig as the C
+      # compiler). Two reasons we are here and not on `*-unknown-linux-gnu`:
+      #   1. A glibc-linked binary's runtime libc must stay >= the libc the
+      #      binary was built against. The runner image's GLIBC has bumped
+      #      past debian:bookworm-slim's GLIBC_2.36 in the past, shipping
+      #      CrashLoop releases (see br-graphql-gateway#29).
+      #   2. Static-musl decouples the binary from the runtime image's libc
+      #      *entirely* — a future runner bump cannot reintroduce the skew
+      #      because the binary no longer depends on the runtime libc at all.
+      # Why zigbuild and not the system musl-gcc + aarch64-linux-musl-gcc
+      # cross toolchains: Zig ships a working musl-aarch64 C cross compiler
+      # that handles `ring` + `aws-lc-sys` (pulled transitively by rustls
+      # via reqwest/jsonwebtoken/async-nats) cleanly. The musl-cross apt
+      # path on aarch64 is notoriously brittle for those crates.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
 
       - uses: Swatinem/rust-cache@v2
 
       # buildx is needed for `docker build --provenance=false` in publish.sh.
       # NO `setup-qemu-action`: the Dockerfile has no `RUN` instructions, so
-      # buildx never needs to exec foreign-arch code. The arm64 binary itself
-      # is cross-compiled natively above (gcc-aarch64-linux-gnu, no
-      # emulation), and `COPY ${BIN_PATH}` is a layer op the builder does
-      # natively. → arm64 docker build is now I/O-bound, not CPU-bound.
+      # buildx never has to exec foreign-arch code. Both binaries are static
+      # musl built natively above (Rust target = musl, Zig as C linker), and
+      # `COPY ${BIN_PATH}` is a layer op the builder does natively. → arm64
+      # docker build is now I/O-bound, not CPU-bound.
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR (Docker)
