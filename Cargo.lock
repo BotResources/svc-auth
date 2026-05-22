@@ -166,6 +166,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "br-core-auth"
+version = "0.5.0"
+source = "git+https://github.com/BotResources/br-rust-common?tag=br-core-auth-v0.5.0#a428b81e476e28bfd98de3ff1427e4d4c6d39f5d"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2154,11 +2167,12 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "svc-auth"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-nats",
  "axum",
  "base64 0.22.1",
+ "br-core-auth",
  "chrono",
  "dotenvy",
  "jsonwebtoken",

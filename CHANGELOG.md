@@ -4,6 +4,12 @@ All notable changes to `svc-auth` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.1.2
+
+### Changed
+
+- Bearer-token KV-key derivation now comes from `br-core-auth` v0.5.0 (`bearer_token_key`), the canonical cross-service contract for the `bearer_tokens` NATS KV bucket. The local `hash_bearer` / `hex_encode` helpers in `bearer_validator.rs` are removed. Hash format is unchanged (lowercase-hex SHA-256), existing KV entries stay resolvable — no migration needed. Resolves [#8](https://github.com/BotResources/svc-auth/issues/8)
+
 ## 0.1.1
 
 ### Added
