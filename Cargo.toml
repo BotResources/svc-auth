@@ -25,6 +25,9 @@ openidconnect = { version = "4", features = ["reqwest"] }
 # Messaging (NATS KV for refresh tokens + bearer validation)
 async-nats = "0.46"
 
+# Shared cross-service contracts (bearer-token KV key derivation)
+br-core-auth = { git = "ssh://git@github.com/BotResources/br-rust-common", package = "br-core-auth", tag = "br-core-auth-v0.5.0" }
+
 # Types & utilities
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
