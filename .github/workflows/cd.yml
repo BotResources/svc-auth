@@ -17,6 +17,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  # Tells cargo to shell out to `git` for the `br-rust-common` SSH dep
+  # instead of libgit2's in-process SSH stack, which can't talk to the
+  # ssh-agent set up by webfactory/ssh-agent.
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
   publish:
@@ -27,6 +31,11 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+
+      # SSH agent for the private `br-rust-common` git dep (br-core-auth).
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.BR_COMMON_DEPLOY_KEY }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -59,4 +68,14 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
-        run: ./scripts/publish.sh --skip-checks
+        # CROSS_CONTAINER_OPTS forwards the ssh-agent socket into cross's
+        # build containers so `cargo fetch` can reach the private
+        # br-rust-common repo over SSH. Built here with shell expansion
+        # instead of a step-level `env:` block so that SSH_AUTH_SOCK
+        # (exported to $GITHUB_ENV by webfactory/ssh-agent) is resolved
+        # at runtime rather than at expression-evaluation time, which
+        # would substitute an empty string.
+        run: |
+          : "${SSH_AUTH_SOCK:?ssh-agent did not export SSH_AUTH_SOCK}"
+          export CROSS_CONTAINER_OPTS="-v ${SSH_AUTH_SOCK}:/tmp/ssh-agent -e SSH_AUTH_SOCK=/tmp/ssh-agent -e CARGO_NET_GIT_FETCH_WITH_CLI=true"
+          ./scripts/publish.sh --skip-checks

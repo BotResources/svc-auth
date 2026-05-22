@@ -9,6 +9,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  # Tells cargo to shell out to `git` for the `br-rust-common` SSH dep
+  # instead of libgit2's in-process SSH stack, which can't talk to the
+  # ssh-agent set up by webfactory/ssh-agent.
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 permissions:
   contents: read
@@ -19,6 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # SSH agent for the private `br-rust-common` git dep (br-core-auth).
+      # `BR_COMMON_DEPLOY_KEY` carries a read-only deploy key on that repo.
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.BR_COMMON_DEPLOY_KEY }}
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -51,6 +62,14 @@ jobs:
       checks: write
     steps:
       - uses: actions/checkout@v4
+
+      # `rustsec/audit-check` runs `cargo audit`, which resolves the dep
+      # graph (including the private br-rust-common SSH git dep) before
+      # checking advisories. Without the agent it fails on dep fetch.
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.BR_COMMON_DEPLOY_KEY }}
+
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
