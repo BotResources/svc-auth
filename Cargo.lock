@@ -169,7 +169,7 @@ dependencies = [
 [[package]]
 name = "br-core-auth"
 version = "0.5.0"
-source = "git+ssh://git@github.com/BotResources/br-rust-common?tag=br-core-auth-v0.5.0#a428b81e476e28bfd98de3ff1427e4d4c6d39f5d"
+source = "git+https://github.com/BotResources/br-rust-common?tag=br-core-auth-v0.5.0#a428b81e476e28bfd98de3ff1427e4d4c6d39f5d"
 dependencies = [
  "base64 0.22.1",
  "serde",
