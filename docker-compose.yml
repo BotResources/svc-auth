@@ -19,8 +19,3 @@ services:
     depends_on:
       nats:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 3

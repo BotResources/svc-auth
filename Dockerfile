@@ -16,9 +16,13 @@
 
 FROM debian:bookworm-slim
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
+# No `RUN` instructions: keeps the Dockerfile cross-arch buildable without
+# QEMU emulation. ca-certificates is intentionally NOT installed — every
+# outbound HTTPS call goes through rustls + webpki-roots (Mozilla CA store
+# bundled into the binary at compile time): see reqwest's `rustls-tls`
+# feature in Cargo.toml, and async-nats which also uses rustls. curl was
+# only used by the docker-compose dev healthcheck; production k8s probes
+# are native httpGet/tcpSocket.
 
 ARG BIN_PATH=target/release/svc-auth
 
