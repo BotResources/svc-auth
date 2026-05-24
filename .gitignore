@@ -4,3 +4,4 @@
 *.swo
 *~
 .DS_Store
+.e2e-svc-auth.pid

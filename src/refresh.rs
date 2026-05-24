@@ -15,7 +15,10 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::cookie::{build_access_cookie, build_refresh_cookie, extract_refresh_cookie};
+use crate::cookie::{
+    build_access_cookie, build_clear_access_cookie, build_clear_refresh_cookie,
+    build_refresh_cookie, extract_refresh_cookie,
+};
 use crate::error::AppError;
 use crate::jwt::JwtError;
 use crate::refresh_store::RefreshToken;
@@ -33,7 +36,23 @@ pub async fn refresh_handler(
     let body = body.map(|j| j.0).unwrap_or_default();
     match handle_refresh(&state, &body, &headers).await {
         Ok(r) => r,
-        Err(e) => e.into_response(),
+        Err(e) => {
+            let mut response = e.into_response();
+            if response.status() == StatusCode::UNAUTHORIZED {
+                let clear_access = build_clear_access_cookie(&state.cookie_config);
+                let clear_refresh = build_clear_refresh_cookie(&state.cookie_config);
+                let hdrs = response.headers_mut();
+                hdrs.insert(
+                    SET_COOKIE,
+                    clear_access.parse().expect("cookie is valid ASCII"),
+                );
+                hdrs.append(
+                    SET_COOKIE,
+                    clear_refresh.parse().expect("cookie is valid ASCII"),
+                );
+            }
+            response
+        }
     }
 }
 
