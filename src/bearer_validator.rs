@@ -20,20 +20,14 @@ impl BearerValidator {
     }
 
     /// Check if a bearer token's hash exists in the KV bucket.
-    /// Returns `true` if the token is recognized, `false` if not found or
-    /// on any error (fail-open to anonymous).
-    pub async fn is_valid(&self, token: &str) -> bool {
+    /// Returns `Ok(true)` if recognized, `Ok(false)` if not found,
+    /// `Err` on infrastructure failure.
+    pub async fn is_valid(&self, token: &str) -> Result<bool, async_nats::error::Error<async_nats::jetstream::kv::EntryErrorKind>> {
         let key = bearer_token_key(token);
         match self.kv.get(&key).await {
-            Ok(Some(_)) => true,
-            Ok(None) => false,
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "NATS KV bearer_tokens lookup failed; treating as anonymous"
-                );
-                false
-            }
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => Ok(false),
+            Err(e) => Err(e),
         }
     }
 
