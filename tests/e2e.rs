@@ -153,10 +153,7 @@ async fn refresh_expired_token_returns_401_with_clear_cookies() {
 
     let resp = client
         .post(format!("{}/auth/refresh", base_url()))
-        .header(
-            "cookie",
-            format!("refresh_token={expired_refresh}"),
-        )
+        .header("cookie", format!("refresh_token={expired_refresh}"))
         .header("content-type", "application/json")
         .body("{}")
         .send()
@@ -177,11 +174,15 @@ async fn refresh_expired_token_returns_401_with_clear_cookies() {
         .collect();
 
     assert!(
-        set_cookies.iter().any(|c| c.contains("access_token=;") || c.contains("access_token=;")),
+        set_cookies
+            .iter()
+            .any(|c| c.contains("access_token=;") || c.contains("access_token=;")),
         "401 from /auth/refresh should clear access_token cookie, got: {set_cookies:?}"
     );
     assert!(
-        set_cookies.iter().any(|c| c.contains("refresh_token=;") || c.contains("refresh_token=;")),
+        set_cookies
+            .iter()
+            .any(|c| c.contains("refresh_token=;") || c.contains("refresh_token=;")),
         "401 from /auth/refresh should clear refresh_token cookie, got: {set_cookies:?}"
     );
 }
