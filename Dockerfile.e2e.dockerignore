@@ -1,0 +1,6 @@
+.git/
+.github/
+.githooks/
+target/
+scripts/
+charts/

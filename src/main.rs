@@ -56,8 +56,14 @@ async fn main() {
 
     let jetstream = async_nats::jetstream::new(nats_client);
 
-    // -- NATS KV: bearer_tokens (read-only) --
-    let bearer_validator = match jetstream.get_key_value("bearer_tokens").await {
+    // -- NATS KV: bearer_tokens (read-only, created if absent) --
+    let bearer_validator = match jetstream
+        .create_key_value(async_nats::jetstream::kv::Config {
+            bucket: "bearer_tokens".to_string(),
+            ..Default::default()
+        })
+        .await
+    {
         Ok(kv) => {
             tracing::info!("NATS KV bearer_tokens connected");
             Some(Arc::new(BearerValidator::new(kv)))

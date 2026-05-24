@@ -73,6 +73,9 @@ impl JwtService {
         let mut validation = Validation::default();
         validation.set_issuer(&[&self.issuer]);
         validation.set_required_spec_claims(&["sub", "iss", "iat", "exp"]);
+        // Default leeway is 60s which silently extends token lifetime.
+        // Use 5s to tolerate minor clock skew only.
+        validation.leeway = 5;
 
         let token_data =
             decode::<AccessClaims>(token, &self.decoding_key, &validation).map_err(|e| match e
@@ -111,6 +114,7 @@ impl JwtService {
         let mut validation = Validation::default();
         validation.set_issuer(&[&self.issuer]);
         validation.set_required_spec_claims(&["sub", "jti", "iss", "iat", "exp"]);
+        validation.leeway = 5;
 
         let token_data =
             decode::<RefreshClaims>(token, &self.decoding_key, &validation).map_err(|e| match e

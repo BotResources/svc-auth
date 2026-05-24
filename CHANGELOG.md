@@ -4,6 +4,17 @@ All notable changes to `svc-auth` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.2.1
+
+### Fixed
+
+- **`/auth/check`**: expired JWT cookie now correctly returns **401** when `AUTH_CHECK_SILENT_REFRESH=false`. Root cause: `jsonwebtoken` default leeway of 60s was silently accepting tokens expired by less than 60 seconds. Leeway reduced to 5s for both access and refresh token verification. Resolves [#13](https://github.com/BotResources/svc-auth/issues/13)
+- **`/auth/refresh`**: 401 responses now include `Set-Cookie` headers clearing both `access_token` and `refresh_token` cookies (`Max-Age=0`). Previously the browser kept stale HttpOnly cookies, trapping SPA clients in a 401 loop with no recovery path. Resolves [#5](https://github.com/BotResources/svc-auth/issues/5)
+
+### Added
+
+- E2E test harness (`tests/e2e.rs`) with Docker Compose (real NATS, native svc-auth binary, no mocks). CI job `e2e` gates merge to main
+
 ## 0.2.0
 
 ### Changed

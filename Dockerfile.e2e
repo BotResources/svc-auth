@@ -1,0 +1,15 @@
+FROM rust:1.88-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY src/ src/
+
+RUN cargo build --release --locked && \
+    cp target/release/svc-auth /svc-auth
+
+FROM debian:bookworm-slim
+COPY --from=builder /svc-auth /usr/local/bin/svc-auth
+EXPOSE 8002
+ENTRYPOINT ["/usr/local/bin/svc-auth"]

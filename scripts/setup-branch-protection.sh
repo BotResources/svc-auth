@@ -25,6 +25,7 @@ REQUIRED_CHECKS=(
     "changelog entry present"
     "trufflehog (secret scan)"
     "shellcheck"
+    "e2e"
 )
 
 echo "Repository: $REPO"
