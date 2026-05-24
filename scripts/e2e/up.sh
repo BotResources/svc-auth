@@ -25,7 +25,7 @@ SVC_AUTH_PID=$!
 echo "$SVC_AUTH_PID" > "$REPO_ROOT/.e2e-svc-auth.pid"
 
 echo "==> Waiting for /health..."
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
     if curl -sf http://localhost:8002/health > /dev/null 2>&1; then
         echo "==> svc-auth is healthy (pid $SVC_AUTH_PID)."
         exit 0
