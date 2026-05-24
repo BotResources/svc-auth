@@ -125,7 +125,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: bnjbvr/cargo-machete-action@v1
+      - name: install + run cargo-machete
+        run: cargo install cargo-machete --locked && cargo machete
 
   # ---------------------------------------------------------------------------
   # Changelog entry present (independent — no Rust needed)
