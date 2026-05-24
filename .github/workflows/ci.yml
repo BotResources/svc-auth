@@ -184,17 +184,39 @@ jobs:
     name: e2e
     needs: check
     runs-on: arc-ubuntu
+    env:
+      NATS_URL: nats://localhost:4222
+      JWT_SECRET: e2e-test-secret-key-at-least-32-chars!
+      JWT_ISSUER: svc-auth
+      ENVIRONMENT: local
+      PORT: "8002"
+      SECURE_COOKIES: "false"
+      AUTH_CHECK_SILENT_REFRESH: "false"
+      RUST_LOG: info
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: start e2e stack
-        run: scripts/e2e/up.sh
+      - name: start nats
+        run: |
+          docker run -d --name nats -p 4222:4222 nats:2.10-alpine -js
+          until nc -z localhost 4222 2>/dev/null; do sleep 0.5; done
+
+      - name: build + start svc-auth
+        run: |
+          cargo build --release --locked
+          target/release/svc-auth &
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:8002/health > /dev/null 2>&1 && break
+            sleep 0.5
+          done
 
       - name: run e2e tests
-        run: scripts/e2e/run.sh
+        run: cargo test --test e2e -- --ignored
 
       - name: teardown
         if: always()
-        run: scripts/e2e/down.sh
+        run: |
+          pkill -f "target/release/svc-auth" || true
+          docker rm -f nats || true
