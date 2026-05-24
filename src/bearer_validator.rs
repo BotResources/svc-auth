@@ -22,7 +22,10 @@ impl BearerValidator {
     /// Check if a bearer token's hash exists in the KV bucket.
     /// Returns `Ok(true)` if recognized, `Ok(false)` if not found,
     /// `Err` on infrastructure failure.
-    pub async fn is_valid(&self, token: &str) -> Result<bool, async_nats::error::Error<async_nats::jetstream::kv::EntryErrorKind>> {
+    pub async fn is_valid(
+        &self,
+        token: &str,
+    ) -> Result<bool, async_nats::error::Error<async_nats::jetstream::kv::EntryErrorKind>> {
         let key = bearer_token_key(token);
         match self.kv.get(&key).await {
             Ok(Some(_)) => Ok(true),
