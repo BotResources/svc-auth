@@ -14,11 +14,11 @@
 //! return 401. No token rotation, no Set-Cookie. The client catches 401 and
 //! calls `/auth/refresh` explicitly (standard SPA pattern).
 //!
-//! Valid JWT, valid bearer, unknown bearer, and no-credentials branches
-//! return 200 in both modes.
+//! Valid JWT, valid bearer, and no-credentials branches return 200 in both
+//! modes. Unknown bearer tokens return 401; KV errors return 502.
 //!
 //! svc-auth does NOT build Passports or resolve identity. It validates
-//! credentials and lets them through or treats them as anonymous.
+//! credentials and rejects unrecognized ones.
 
 use axum::extract::State;
 use axum::http::header::SET_COOKIE;
@@ -202,6 +202,9 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
 }
 
 /// Handle bearer token in Authorization header.
+///
+/// Valid token → 200, unknown token → 401, KV error → 502,
+/// no validator configured → 200 (anonymous fallback).
 async fn handle_bearer(state: &AppState, auth_value: &str) -> Response {
     let token = if auth_value.len() >= 7 && auth_value[..7].eq_ignore_ascii_case("bearer ") {
         &auth_value[7..]
@@ -209,16 +212,25 @@ async fn handle_bearer(state: &AppState, auth_value: &str) -> Response {
         auth_value
     };
 
-    if let Some(ref validator) = state.bearer_validator {
-        let valid = validator.is_valid(token).await;
-        tracing::debug!(valid, "auth_check: bearer token validation result");
-    } else {
+    let Some(ref validator) = state.bearer_validator else {
         tracing::debug!("auth_check: no bearer validator configured, treating as anonymous");
-    }
+        return StatusCode::OK.into_response();
+    };
 
-    // Always 200. The bearer is forwarded as-is; the gateway resolves it
-    // via svc-identity. If the hash is not found, it is treated as anonymous.
-    StatusCode::OK.into_response()
+    match validator.is_valid(token).await {
+        Ok(true) => {
+            tracing::debug!("auth_check: bearer token valid");
+            StatusCode::OK.into_response()
+        }
+        Ok(false) => {
+            tracing::debug!("auth_check: bearer token not recognized");
+            StatusCode::UNAUTHORIZED.into_response()
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "auth_check: NATS KV bearer lookup failed");
+            StatusCode::BAD_GATEWAY.into_response()
+        }
+    }
 }
 
 /// Build a 200 response that clears both cookies.

@@ -4,6 +4,13 @@ All notable changes to `svc-auth` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.2.0
+
+### Changed
+
+- **Breaking:** `/auth/check` now rejects invalid bearer tokens with **401 Unauthorized** instead of silently accepting them as anonymous. Valid tokens and requests with no `Authorization` header are unchanged (200 OK). NATS KV lookup failures return **502 Bad Gateway** instead of failing open to anonymous
+- `BearerValidator::is_valid()` returns `Result<bool>` instead of `bool` to let callers distinguish "token not found" from "infrastructure error"
+
 ## 0.1.2
 
 ### Changed
