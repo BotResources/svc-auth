@@ -1,30 +1,30 @@
 name: CD
 
-# Triggered by pushing a version tag: v{version}.
-# Runs the same publish.sh script as local — cross-compiles for amd64+arm64,
-# packages Docker images, pushes to GHCR with a multi-arch manifest.
+# Triggered by push to main (after a PR merge). Publishes the image only if
+# the Cargo.toml version has no matching git tag yet. The tag is created AFTER
+# a successful smoke-test — never before.
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  IMAGE: ghcr.io/botresources/br-svc-auth
 
 jobs:
   publish:
     name: Publish
-    # The arc-ubuntu runner pool already runs on
-    # `ghcr.io/botresources/br-arc-runner:stable`, which ships rust +
-    # docker-cli + helm + the basic build toolchain. No `container:`
-    # block needed.
     runs-on: arc-ubuntu
     defaults:
       run:
@@ -35,51 +35,181 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      # Static-musl cross-compile via cargo-zigbuild (Zig as the C
-      # compiler). Two reasons we are here and not on `*-unknown-linux-gnu`:
-      #   1. A glibc-linked binary's runtime libc must stay >= the libc the
-      #      binary was built against. The runner image's GLIBC has bumped
-      #      past debian:bookworm-slim's GLIBC_2.36 in the past, shipping
-      #      CrashLoop releases (see br-graphql-gateway#29).
-      #   2. Static-musl decouples the binary from the runtime image's libc
-      #      *entirely* — a future runner bump cannot reintroduce the skew
-      #      because the binary no longer depends on the runtime libc at all.
-      # Why zigbuild and not the system musl-gcc + aarch64-linux-musl-gcc
-      # cross toolchains: Zig ships a working musl-aarch64 C cross compiler
-      # that handles `ring` + `aws-lc-sys` (pulled transitively by rustls
-      # via reqwest/jsonwebtoken/async-nats) cleanly. The musl-cross apt
-      # path on aarch64 is notoriously brittle for those crates.
-      - uses: dtolnay/rust-toolchain@stable
+      # -----------------------------------------------------------------------
+      # Gate: skip if this version is already tagged (= already published)
+      # -----------------------------------------------------------------------
+      - name: resolve version + gate
+        id: ver
+        run: |
+          version="$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          tag="v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+          if git tag -l "$tag" | grep -q .; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag $tag already exists — nothing to publish"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: verify changelog entry
+        if: steps.ver.outputs.skip == 'false'
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          if [ ! -f CHANGELOG.md ]; then
+            echo "::warning::CHANGELOG.md missing — skipping publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! grep -qE "^## ${version}( |$)" CHANGELOG.md; then
+            echo "::warning::CHANGELOG.md has no '## $version' heading — skipping publish"
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------------
+      # Toolchain: static-musl cross-compile via cargo-zigbuild
+      # -----------------------------------------------------------------------
+      - name: setup rust targets
+        if: steps.ver.outputs.skip == 'false'
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
 
-      - uses: mlugg/setup-zig@v1
+      - name: setup zig
+        if: steps.ver.outputs.skip == 'false'
+        uses: mlugg/setup-zig@v1
         with:
           version: 0.13.0
 
-      - uses: taiki-e/install-action@v2
+      - name: install cargo-zigbuild
+        if: steps.ver.outputs.skip == 'false'
+        uses: taiki-e/install-action@v2
         with:
           tool: cargo-zigbuild
 
-      - uses: Swatinem/rust-cache@v2
+      - name: cargo cache
+        if: steps.ver.outputs.skip == 'false'
+        uses: Swatinem/rust-cache@v2
 
-      # buildx is needed for `docker build --provenance=false` in publish.sh.
-      # NO `setup-qemu-action`: the Dockerfile has no `RUN` instructions, so
-      # buildx never has to exec foreign-arch code. Both binaries are static
-      # musl built natively above (Rust target = musl, Zig as C linker), and
-      # `COPY ${BIN_PATH}` is a layer op the builder does natively. → arm64
-      # docker build is now I/O-bound, not CPU-bound.
-      - uses: docker/setup-buildx-action@v3
+      - name: setup buildx
+        if: steps.ver.outputs.skip == 'false'
+        uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR (Docker)
+      - name: login to GHCR
+        if: steps.ver.outputs.skip == 'false'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish image + chart
+      # -----------------------------------------------------------------------
+      # Build: cross-compile both targets
+      # -----------------------------------------------------------------------
+      - name: cargo zigbuild (x86_64-musl)
+        if: steps.ver.outputs.skip == 'false'
+        run: cargo zigbuild --release --locked --target x86_64-unknown-linux-musl
+
+      - name: cargo zigbuild (aarch64-musl)
+        if: steps.ver.outputs.skip == 'false'
+        run: cargo zigbuild --release --locked --target aarch64-unknown-linux-musl
+
+      # -----------------------------------------------------------------------
+      # Assert: binaries are truly static (no PT_INTERP segment)
+      # -----------------------------------------------------------------------
+      - name: assert static (no PT_INTERP)
+        if: steps.ver.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          for triple in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            path="target/${triple}/release/svc-auth"
+            if readelf -l "$path" | grep -q "INTERP"; then
+              echo "::error::$path has a PT_INTERP segment — it is NOT static"
+              readelf -l "$path" | grep -A2 "INTERP"
+              exit 1
+            fi
+            echo "ok: $path is static"
+          done
+
+      # -----------------------------------------------------------------------
+      # Package: one image per arch, then multi-arch manifest
+      # -----------------------------------------------------------------------
+      - name: docker build + push (amd64)
+        if: steps.ver.outputs.skip == 'false'
+        run: |
+          docker build --provenance=false --platform linux/amd64 \
+            --build-arg BIN_PATH=target/x86_64-unknown-linux-musl/release/svc-auth \
+            --tag "${IMAGE}:${{ steps.ver.outputs.version }}-amd64" .
+          docker push "${IMAGE}:${{ steps.ver.outputs.version }}-amd64"
+
+      - name: docker build + push (arm64)
+        if: steps.ver.outputs.skip == 'false'
+        run: |
+          docker build --provenance=false --platform linux/arm64 \
+            --build-arg BIN_PATH=target/aarch64-unknown-linux-musl/release/svc-auth \
+            --tag "${IMAGE}:${{ steps.ver.outputs.version }}-arm64" .
+          docker push "${IMAGE}:${{ steps.ver.outputs.version }}-arm64"
+
+      - name: create + push multi-arch manifest
+        if: steps.ver.outputs.skip == 'false'
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          for tag in "$VERSION" latest stable; do
+            docker manifest create --amend "${IMAGE}:${tag}" \
+              "${IMAGE}:${VERSION}-amd64" \
+              "${IMAGE}:${VERSION}-arm64"
+            docker manifest push "${IMAGE}:${tag}"
+          done
+
+      # -----------------------------------------------------------------------
+      # Smoke-test: --version on both arches before tagging
+      # -----------------------------------------------------------------------
+      - name: smoke-test published image (both arches)
+        if: steps.ver.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
+          EXPECTED="svc-auth ${VERSION}"
+          for platform in linux/amd64 linux/arm64; do
+            out=$(docker run --rm --platform "${platform}" "${IMAGE}:${VERSION}" --version)
+            echo "${platform}: ${out}"
+            [[ "$out" == "$EXPECTED" ]] || {
+              echo "::error::Smoke-test failed on ${platform}: expected '${EXPECTED}', got '${out}'"
+              exit 1
+            }
+          done
+
+      # -----------------------------------------------------------------------
+      # Helm chart publish
+      # -----------------------------------------------------------------------
+      - name: publish helm chart
+        if: steps.ver.outputs.skip == 'false'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
-        run: ./scripts/publish.sh --skip-checks
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          CHART_REPO="oci://ghcr.io/botresources/charts"
+
+          echo "$GHCR_TOKEN" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+
+          CHART_OUT="$(mktemp -d)"
+          helm package charts/br-svc-auth \
+            --version "$VERSION" --app-version "$VERSION" \
+            --destination "$CHART_OUT"
+
+          helm push "$CHART_OUT/br-svc-auth-${VERSION}.tgz" "$CHART_REPO"
+
+      # -----------------------------------------------------------------------
+      # Auto-tag: only after successful publish + smoke-test
+      # -----------------------------------------------------------------------
+      - name: create git tag
+        if: steps.ver.outputs.skip == 'false'
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "::notice::Created tag $TAG"

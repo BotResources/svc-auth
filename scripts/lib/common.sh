@@ -15,6 +15,7 @@ toml_string() {
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Crate metadata — single-crate repo, everything lives at the root.
+# shellcheck disable=SC2034
 CRATE_NAME="svc-auth"
 
 crate_version() { toml_string "$REPO_ROOT/Cargo.toml" "version"; }
@@ -26,7 +27,7 @@ crate_image()   { echo "${IMAGE:-ghcr.io/botresources/br-svc-auth}"; }
 # Check we're on main and up to date with origin.
 # In CI (detached HEAD on tag checkout), verify the tag commit is on main.
 ensure_main() {
-    cd "$REPO_ROOT"
+    cd "$REPO_ROOT" || exit
     git fetch origin main --tags --quiet
 
     local branch
