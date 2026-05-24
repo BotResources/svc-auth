@@ -1,50 +1,97 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
-permissions:
-  contents: read
-
 jobs:
+  # ---------------------------------------------------------------------------
+  # Auto-fix gate: cargo fmt, auto-push the fix, fail to force re-run.
+  # All Rust jobs depend on this via `needs: fmt`.
+  # ---------------------------------------------------------------------------
+  fmt:
+    name: cargo fmt (auto-fix)
+    runs-on: arc-ubuntu
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: cargo fmt --all
+        run: cargo fmt --all
+
+      - name: check + auto-fix
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "Already formatted."
+            exit 0
+          fi
+
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "::error::Code is not formatted. Run 'cargo fmt --all' locally."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: cargo fmt (auto-fix)"
+          git push
+          echo "::error::Code was auto-formatted and pushed. Please re-run CI."
+          exit 1
+
+  # ---------------------------------------------------------------------------
+  # Clippy + unit tests + helm lint
+  # ---------------------------------------------------------------------------
   check:
-    name: Checks
+    name: clippy + test
+    needs: fmt
     runs-on: arc-ubuntu
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy
       - uses: Swatinem/rust-cache@v2
 
       - uses: azure/setup-helm@v4
         with:
           version: v3.16.2
 
-      - name: cargo fmt
-        run: cargo fmt --check
-
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: Unit tests
+      - name: unit tests
         run: cargo test --lib
 
-      - name: helm lint chart
+      - name: helm lint
         run: helm lint charts/br-svc-auth
 
       - name: helm template dry-run
         run: helm template ci charts/br-svc-auth --debug > /dev/null
 
+  # ---------------------------------------------------------------------------
+  # Security audit (RustSec)
+  # ---------------------------------------------------------------------------
   audit:
-    name: Security audit
+    name: cargo audit (RustSec)
+    needs: fmt
     runs-on: arc-ubuntu
     permissions:
       contents: read
@@ -54,55 +101,78 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          # Ignores: all advisories below are upstream transitive deps not
-          # actionable from this crate. Revisit when async-nats bumps its
-          # rustls-webpki, and when rsa / rand ship patches.
-          #   RUSTSEC-2023-0071 — rsa Marvin timing side-channel; no patch.
-          #   RUSTSEC-2026-0049/0098/0099 — rustls-webpki 0.102.x pulled by
-          #     async-nats 0.46; upstream needs to bump to 0.103.12+.
-          #   RUSTSEC-2026-0097 — rand unsound under a specific custom-logger
-          #     + ThreadRng reseed scenario we do not hit.
-          ignore: RUSTSEC-2023-0071,RUSTSEC-2026-0049,RUSTSEC-2026-0098,RUSTSEC-2026-0099,RUSTSEC-2026-0097
+          ignore: RUSTSEC-2023-0071,RUSTSEC-2026-0049
 
   # ---------------------------------------------------------------------------
-  # Auto-tag: on push to main (not PR), if Cargo.toml version has no matching
-  # git tag, create it. This triggers cd.yml which publishes the image.
+  # cargo-deny: licenses, bans, advisories, sources
   # ---------------------------------------------------------------------------
-  auto-tag:
-    name: Auto-tag on version bump
-    needs: [check, audit]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  deny:
+    name: cargo-deny check
+    needs: fmt
     runs-on: arc-ubuntu
-    permissions:
-      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  # ---------------------------------------------------------------------------
+  # cargo-machete: unused dependencies
+  # ---------------------------------------------------------------------------
+  machete:
+    name: cargo-machete (unused deps)
+    needs: fmt
+    runs-on: arc-ubuntu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: bnjbvr/cargo-machete-action@v1
+
+  # ---------------------------------------------------------------------------
+  # Changelog entry present (independent — no Rust needed)
+  # ---------------------------------------------------------------------------
+  changelog:
+    name: changelog entry present
+    runs-on: arc-ubuntu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: check changelog has entry for current version
+        shell: bash
+        run: |
+          version="$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          if [ ! -f CHANGELOG.md ]; then
+            echo "::error::CHANGELOG.md missing"
+            exit 1
+          fi
+          if ! grep -qE "^## ${version}( |$)" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## $version' heading"
+            exit 1
+          fi
+          echo "Found changelog entry for $version"
+
+  # ---------------------------------------------------------------------------
+  # Trufflehog: secret scan (independent)
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: trufflehog (secret scan)
+    runs-on: arc-ubuntu
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          fetch-tags: true
+      - uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified
 
-      - name: Create tag if version bumped
-        run: |
-          version="$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
-          [ -n "$version" ] || { echo "ERROR: no version in Cargo.toml"; exit 1; }
-
-          tag="v${version}"
-
-          if git tag -l "$tag" | grep -q .; then
-            echo "Tag $tag already exists — nothing to do"
-            exit 0
-          fi
-
-          # Verify changelog entry exists before tagging
-          if [ ! -f CHANGELOG.md ]; then
-            echo "::warning::CHANGELOG.md missing — skipping tag"
-            exit 0
-          fi
-          if ! grep -qE "^## ${version}( |$)" CHANGELOG.md; then
-            echo "::warning::CHANGELOG.md has no '## $version' heading — skipping tag"
-            exit 0
-          fi
-
-          echo "Creating tag $tag"
-          git tag "$tag"
-          git push origin "$tag"
+  # ---------------------------------------------------------------------------
+  # Shellcheck (independent)
+  # ---------------------------------------------------------------------------
+  shellcheck:
+    name: shellcheck
+    runs-on: arc-ubuntu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: scripts
+          severity: warning

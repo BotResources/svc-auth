@@ -23,6 +23,11 @@ use svc_auth::refresh_store::RefreshTokenStore;
 
 #[tokio::main]
 async fn main() {
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("svc-auth {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     dotenvy::dotenv().ok();
 
     tracing_subscriber::fmt()
