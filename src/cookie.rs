@@ -40,6 +40,10 @@ impl CookieConfig {
             "access_token"
         }
     }
+
+    pub fn session_cookie_name(&self) -> &'static str {
+        br_core_auth::session_cookie_name(self.secure)
+    }
 }
 
 // -- Access token cookie --
@@ -78,6 +82,22 @@ pub fn build_clear_refresh_cookie(config: &CookieConfig) -> String {
 
 pub fn extract_refresh_cookie(headers: &HeaderMap, config: &CookieConfig) -> Option<String> {
     extract_cookie(headers, config.refresh_cookie_name())
+}
+
+// -- Session ID cookie --
+
+pub fn build_session_cookie(session_id: &str, config: &CookieConfig) -> String {
+    let name = config.session_cookie_name();
+    if config.secure {
+        format!("{name}={session_id}; HttpOnly; Secure; SameSite=Lax; Path=/")
+    } else {
+        format!("{name}={session_id}; HttpOnly; SameSite=Lax; Path=/")
+    }
+}
+
+pub fn extract_session_cookie(headers: &HeaderMap, config: &CookieConfig) -> Option<String> {
+    let cookie_header = headers.get(COOKIE)?.to_str().ok()?;
+    br_core_auth::extract_session_id(cookie_header, config.secure).map(|s| s.to_string())
 }
 
 // -- Internal helpers --
@@ -210,6 +230,52 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(COOKIE, HeaderValue::from_static("refresh_token=rt"));
         assert_eq!(extract_access_cookie(&headers, &cfg), None);
+    }
+
+    #[test]
+    fn insecure_session_cookie_name() {
+        assert_eq!(insecure_config().session_cookie_name(), "session_id");
+    }
+
+    #[test]
+    fn secure_session_cookie_name() {
+        assert_eq!(secure_config().session_cookie_name(), "__Host-session_id");
+    }
+
+    #[test]
+    fn build_session_cookie_insecure() {
+        let c = build_session_cookie("some-uuid", &insecure_config());
+        assert_eq!(c, "session_id=some-uuid; HttpOnly; SameSite=Lax; Path=/");
+        assert!(!c.contains("Max-Age"));
+        assert!(!c.contains("Secure"));
+    }
+
+    #[test]
+    fn build_session_cookie_secure() {
+        let c = build_session_cookie("some-uuid", &secure_config());
+        assert!(c.starts_with("__Host-session_id=some-uuid;"));
+        assert!(c.contains("Secure"));
+        assert!(c.contains("SameSite=Lax"));
+        assert!(!c.contains("Max-Age"));
+    }
+
+    #[test]
+    fn extract_session_cookie_from_headers() {
+        let cfg = insecure_config();
+        let mut headers = HeaderMap::new();
+        headers.insert(COOKIE, HeaderValue::from_static("session_id=abc-123"));
+        assert_eq!(
+            extract_session_cookie(&headers, &cfg),
+            Some("abc-123".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_session_cookie_missing_returns_none() {
+        let cfg = insecure_config();
+        let mut headers = HeaderMap::new();
+        headers.insert(COOKIE, HeaderValue::from_static("access_token=jwt"));
+        assert_eq!(extract_session_cookie(&headers, &cfg), None);
     }
 
     #[test]

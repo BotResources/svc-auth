@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::cookie::{
     build_access_cookie, build_clear_access_cookie, build_clear_refresh_cookie,
-    build_refresh_cookie, extract_refresh_cookie,
+    build_refresh_cookie, build_session_cookie, extract_refresh_cookie, extract_session_cookie,
 };
 use crate::error::AppError;
 use crate::jwt::JwtError;
@@ -34,7 +34,9 @@ pub async fn refresh_handler(
     body: Result<axum::Json<RefreshRequest>, axum::extract::rejection::JsonRejection>,
 ) -> Response {
     let body = body.map(|j| j.0).unwrap_or_default();
-    match handle_refresh(&state, &body, &headers).await {
+    let existing_session = extract_session_cookie(&headers, &state.cookie_config);
+
+    let mut response = match handle_refresh(&state, &body, &headers).await {
         Ok(r) => r,
         Err(e) => {
             let mut response = e.into_response();
@@ -53,7 +55,17 @@ pub async fn refresh_handler(
             }
             response
         }
+    };
+
+    if existing_session.is_none() {
+        let sid = uuid::Uuid::now_v7().to_string();
+        let cookie = build_session_cookie(&sid, &state.cookie_config);
+        response
+            .headers_mut()
+            .append(SET_COOKIE, cookie.parse().expect("cookie is valid ASCII"));
     }
+
+    response
 }
 
 async fn handle_refresh(

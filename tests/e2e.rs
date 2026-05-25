@@ -82,6 +82,195 @@ async fn health_returns_200_when_nats_is_reachable() {
 }
 
 // =============================================================================
+// Issue #16: session ID cookie for anonymous and authenticated users
+// =============================================================================
+
+#[tokio::test]
+#[ignore]
+async fn auth_check_anonymous_sets_session_id_cookie() {
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+
+    let resp = client
+        .get(format!("{}/auth/check", base_url()))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let set_cookies: Vec<&str> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .collect();
+
+    assert!(
+        set_cookies.iter().any(|c| c.contains("session_id=")),
+        "anonymous /auth/check should set session_id cookie, got: {set_cookies:?}"
+    );
+
+    let session_cookie = set_cookies
+        .iter()
+        .find(|c| c.contains("session_id="))
+        .unwrap();
+    assert!(
+        session_cookie.contains("HttpOnly"),
+        "session_id cookie must be HttpOnly"
+    );
+    assert!(
+        session_cookie.contains("SameSite=Lax"),
+        "session_id cookie must use SameSite=Lax"
+    );
+    assert!(
+        !session_cookie.contains("Max-Age"),
+        "session_id cookie must NOT have Max-Age (session-scoped)"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn auth_check_preserves_existing_session_id() {
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+
+    let resp = client
+        .get(format!("{}/auth/check", base_url()))
+        .header("cookie", "session_id=existing-session-uuid")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let set_cookies: Vec<&str> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .collect();
+
+    assert!(
+        !set_cookies.iter().any(|c| c.contains("session_id=")),
+        "should NOT set session_id when one already exists, got: {set_cookies:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn auth_check_bearer_does_not_set_session_id() {
+    let client = Client::new();
+    let valid_token = mint_access_token("alice@example.com", false);
+
+    let resp = client
+        .get(format!("{}/auth/check", base_url()))
+        .header("authorization", format!("Bearer {valid_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    let set_cookies: Vec<&str> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .collect();
+
+    assert!(
+        !set_cookies.iter().any(|c| c.contains("session_id=")),
+        "bearer token requests should NOT get session_id cookie, got: {set_cookies:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn auth_check_with_jwt_sets_session_id_when_missing() {
+    let client = Client::new();
+    let valid_token = mint_access_token("alice@example.com", false);
+
+    let resp = client
+        .get(format!("{}/auth/check", base_url()))
+        .header("cookie", format!("access_token={valid_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let set_cookies: Vec<&str> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .collect();
+
+    assert!(
+        set_cookies.iter().any(|c| c.contains("session_id=")),
+        "JWT request without session_id should get one, got: {set_cookies:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn logout_does_not_clear_session_id() {
+    let client = Client::new();
+
+    let resp = client
+        .post(format!("{}/auth/logout", base_url()))
+        .header("cookie", "session_id=keep-me")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let set_cookies: Vec<&str> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .collect();
+
+    assert!(
+        !set_cookies.iter().any(|c| c.contains("session_id=")),
+        "logout should NOT touch session_id cookie, got: {set_cookies:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn refresh_no_session_sets_session_id() {
+    let client = Client::new();
+
+    let resp = client
+        .post(format!("{}/auth/refresh", base_url()))
+        .header("content-type", "application/json")
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let set_cookies: Vec<&str> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .collect();
+
+    assert!(
+        set_cookies.iter().any(|c| c.contains("session_id=")),
+        "/auth/refresh without session_id should set one, got: {set_cookies:?}"
+    );
+}
+
+// =============================================================================
 // Issue #13: expired JWT must return 401 from /auth/check
 // =============================================================================
 

@@ -28,23 +28,30 @@ use axum::response::{IntoResponse, Response};
 use crate::AppState;
 use crate::cookie::{
     build_access_cookie, build_clear_access_cookie, build_clear_refresh_cookie,
-    build_refresh_cookie, extract_access_cookie, extract_refresh_cookie,
+    build_refresh_cookie, build_session_cookie, extract_access_cookie, extract_refresh_cookie,
+    extract_session_cookie,
 };
 use crate::jwt::JwtError;
 
 pub async fn auth_check_handler(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let existing_session = extract_session_cookie(&headers, &state.cookie_config);
+
     // 1. Check for JWT cookie (browser requests, including WS upgrade).
     if let Some(access_token) = extract_access_cookie(&headers, &state.cookie_config) {
-        return handle_jwt_cookie(&state, &access_token, &headers).await;
+        let mut response = handle_jwt_cookie(&state, &access_token, &headers).await;
+        append_session_cookie_if_needed(&mut response, existing_session.as_deref(), &state);
+        return response;
     }
 
-    // 2. Check for bearer token in Authorization header.
+    // 2. Check for bearer token in Authorization header (SA — no session cookie).
     if let Some(auth_value) = headers.get("authorization").and_then(|v| v.to_str().ok()) {
         return handle_bearer(&state, auth_value).await;
     }
 
     // 3. No credentials -- anonymous.
-    StatusCode::OK.into_response()
+    let mut response = StatusCode::OK.into_response();
+    append_session_cookie_if_needed(&mut response, existing_session.as_deref(), &state);
+    response
 }
 
 /// Handle JWT cookie validation. Behavior on expired / invalid JWT depends
@@ -260,4 +267,21 @@ fn clear_access_cookie_response(state: &AppState) -> Response {
         clear_access.parse().expect("cookie is valid ASCII"),
     );
     response
+}
+
+/// Append a `__Host-session_id` Set-Cookie header if the request did not
+/// already carry one. Generates a new UUID v7 for the session.
+fn append_session_cookie_if_needed(
+    response: &mut Response,
+    existing: Option<&str>,
+    state: &AppState,
+) {
+    if existing.is_some() {
+        return;
+    }
+    let session_id = uuid::Uuid::now_v7().to_string();
+    let cookie = build_session_cookie(&session_id, &state.cookie_config);
+    response
+        .headers_mut()
+        .append(SET_COOKIE, cookie.parse().expect("cookie is valid ASCII"));
 }

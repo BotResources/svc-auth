@@ -167,8 +167,8 @@ dependencies = [
 
 [[package]]
 name = "br-core-auth"
-version = "0.5.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=br-core-auth-v0.5.0#a428b81e476e28bfd98de3ff1427e4d4c6d39f5d"
+version = "0.6.0"
+source = "git+https://github.com/BotResources/br-rust-common?tag=br-core-auth-v0.6.0#2866bf9f0b40ba5053aed040368311d3bddfbc5e"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -1212,7 +1212,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.21.7",
  "chrono",
  "getrandom 0.2.17",
  "http",
