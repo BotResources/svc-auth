@@ -281,8 +281,7 @@ fn append_session_cookie_if_needed(
     }
     let session_id = uuid::Uuid::now_v7().to_string();
     let cookie = build_session_cookie(&session_id, &state.cookie_config);
-    response.headers_mut().append(
-        SET_COOKIE,
-        cookie.parse().expect("cookie is valid ASCII"),
-    );
+    response
+        .headers_mut()
+        .append(SET_COOKIE, cookie.parse().expect("cookie is valid ASCII"));
 }

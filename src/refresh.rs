@@ -60,10 +60,9 @@ pub async fn refresh_handler(
     if existing_session.is_none() {
         let sid = uuid::Uuid::now_v7().to_string();
         let cookie = build_session_cookie(&sid, &state.cookie_config);
-        response.headers_mut().append(
-            SET_COOKIE,
-            cookie.parse().expect("cookie is valid ASCII"),
-        );
+        response
+            .headers_mut()
+            .append(SET_COOKIE, cookie.parse().expect("cookie is valid ASCII"));
     }
 
     response
