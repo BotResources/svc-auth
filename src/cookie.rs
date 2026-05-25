@@ -41,12 +41,8 @@ impl CookieConfig {
         }
     }
 
-    pub fn session_cookie_name(&self) -> &str {
-        if self.secure {
-            "__Host-session_id"
-        } else {
-            "session_id"
-        }
+    pub fn session_cookie_name(&self) -> &'static str {
+        br_core_auth::session_cookie_name(self.secure)
     }
 }
 
@@ -100,7 +96,8 @@ pub fn build_session_cookie(session_id: &str, config: &CookieConfig) -> String {
 }
 
 pub fn extract_session_cookie(headers: &HeaderMap, config: &CookieConfig) -> Option<String> {
-    extract_cookie(headers, config.session_cookie_name())
+    let cookie_header = headers.get(COOKIE)?.to_str().ok()?;
+    br_core_auth::extract_session_id(cookie_header, config.secure).map(|s| s.to_string())
 }
 
 // -- Internal helpers --
