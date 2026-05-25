@@ -168,7 +168,7 @@ dependencies = [
 [[package]]
 name = "br-core-auth"
 version = "0.6.0"
-source = "git+https://github.com/BotResources/br-rust-common?branch=feat%2Fsession-cookie-contract#aa7f8d3f9cb6aae52a0d828726cd7d501e2a7a78"
+source = "git+https://github.com/BotResources/br-rust-common?tag=br-core-auth-v0.6.0#2866bf9f0b40ba5053aed040368311d3bddfbc5e"
 dependencies = [
  "base64 0.22.1",
  "serde",
