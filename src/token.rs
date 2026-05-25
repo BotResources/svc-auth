@@ -8,14 +8,14 @@
 //! the user exists, is disabled, or has permissions.
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::http::header::SET_COOKIE;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::cookie::{build_access_cookie, build_refresh_cookie};
+use crate::cookie::{build_access_cookie, build_refresh_cookie, build_session_cookie, extract_session_cookie};
 use crate::error::AppError;
 use crate::oidc_validator::parse_insecure_claims;
 use crate::refresh_store::RefreshToken;
@@ -28,6 +28,7 @@ pub struct TokenRequest {
 
 pub async fn token_handler(
     State(state): State<AppState>,
+    headers: HeaderMap,
     body: Result<axum::Json<TokenRequest>, axum::extract::rejection::JsonRejection>,
 ) -> Response {
     let body = match body {
@@ -35,8 +36,20 @@ pub async fn token_handler(
         Err(_) => return AppError::Validation("invalid request body".into()).into_response(),
     };
 
+    let existing_session = extract_session_cookie(&headers, &state.cookie_config);
+
     match handle_token(&state, &body).await {
-        Ok(r) => r,
+        Ok(mut r) => {
+            if existing_session.is_none() {
+                let sid = Uuid::now_v7().to_string();
+                let cookie = build_session_cookie(&sid, &state.cookie_config);
+                r.headers_mut().append(
+                    SET_COOKIE,
+                    cookie.parse().expect("cookie is valid ASCII"),
+                );
+            }
+            r
+        }
         Err(e) => e.into_response(),
     }
 }
