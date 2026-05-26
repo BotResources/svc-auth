@@ -1,6 +1,6 @@
 [package]
 name = "svc-auth"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -20,7 +20,7 @@ serde_json = "1"
 # Auth
 jsonwebtoken = "9"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-openidconnect = { version = "4", features = ["reqwest"] }
+
 
 # Messaging (NATS KV for refresh tokens + bearer validation)
 async-nats = "0.48"
