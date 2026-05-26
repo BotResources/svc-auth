@@ -140,11 +140,10 @@ impl OidcValidator {
             .and_then(key_algorithm_to_jwt)
             .unwrap_or(header.alg);
 
-        let key = jsonwebtoken::DecodingKey::from_jwk(&jwk)
-            .map_err(|e| {
-                let kid = jwk.common.key_id.as_deref().unwrap_or("unknown");
-                format!("invalid JWK for kid {kid}: {e}")
-            })?;
+        let key = jsonwebtoken::DecodingKey::from_jwk(&jwk).map_err(|e| {
+            let kid = jwk.common.key_id.as_deref().unwrap_or("unknown");
+            format!("invalid JWK for kid {kid}: {e}")
+        })?;
 
         let mut validation = jsonwebtoken::Validation::new(alg);
         validation.set_issuer(&[&provider.issuer]);
