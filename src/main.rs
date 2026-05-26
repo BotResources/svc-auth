@@ -1,7 +1,7 @@
 //! svc-auth composition root.
 //!
 //! Portable, self-contained authentication gatekeeper. REST only.
-//! Zero workspace dependencies. Multi-provider OIDC via openidconnect.
+//! Zero workspace dependencies. Multi-provider OIDC with kid-based JWKS refresh.
 //! Uses NATS KV for refresh token storage (no PostgreSQL).
 
 use std::net::SocketAddr;

@@ -4,6 +4,16 @@ All notable changes to `svc-auth` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.2.2
+
+### Fixed
+
+- **OIDC JWKS refresh**: JWKS keys are now cached per-provider and refreshed automatically when an id_token arrives with an unknown `kid`. Previously keys were fetched once at startup and never refreshed, causing all logins to fail silently after a provider key rotation. Cooldown of 60s per provider prevents re-fetch storms from invalid tokens. Resolves [#18](https://github.com/BotResources/svc-auth/issues/18)
+
+### Changed
+
+- Replaced `openidconnect` crate with direct OIDC discovery via `reqwest` + signature verification via `jsonwebtoken`. Reduces dependency tree and gives full control over JWKS caching
+
 ## 0.2.1
 
 ### Fixed

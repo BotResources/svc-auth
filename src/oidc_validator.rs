@@ -1,31 +1,18 @@
-//! Multi-provider OIDC id_token verification using `openidconnect`.
+//! Multi-provider OIDC id_token verification with automatic JWKS refresh.
 //!
 //! Auto-discovers providers from OIDC_*_DISCOVERY_URL env vars at startup.
 //! Routes incoming id_tokens to the correct provider by matching the `iss` claim.
-//! Each provider has its own JWKS cache managed by the openidconnect crate.
-//!
-//! After signature verification, email is extracted from the raw JWT payload
-//! using the configured claim name (e.g. `preferred_username` for Entra).
+//! JWKS keys are cached per-provider and refreshed on cache miss (unknown kid).
 
 use std::collections::HashMap;
-use std::str::FromStr;
+use std::time::{Duration, Instant};
 
-use openidconnect::core::{CoreClient, CoreGenderClaim, CoreProviderMetadata};
-use openidconnect::{
-    ClientId, EmptyAdditionalClaims, EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl,
-};
+use jsonwebtoken::jwk::JwkSet;
+use tokio::sync::RwLock;
 
 use crate::config::OidcProviderConfig;
 
-/// CoreClient after OIDC discovery has populated endpoints.
-type DiscoveredClient = CoreClient<
-    EndpointSet,      // HasAuthUrl
-    EndpointNotSet,   // HasDeviceAuthUrl
-    EndpointNotSet,   // HasIntrospectionUrl
-    EndpointNotSet,   // HasRevocationUrl
-    EndpointMaybeSet, // HasTokenUrl
-    EndpointMaybeSet, // HasUserInfoUrl
->;
+const JWKS_REFRESH_COOLDOWN: Duration = Duration::from_secs(60);
 
 /// Claims extracted from a verified OIDC id_token.
 pub struct OidcClaims {
@@ -37,52 +24,76 @@ pub struct OidcValidator {
     providers: Vec<OidcProvider>,
 }
 
-/// A single configured OIDC provider with its openidconnect client.
-pub struct OidcProvider {
-    pub name: String,
-    pub issuer: String,
-    client: DiscoveredClient,
+/// OIDC discovery document (only the fields we need).
+#[derive(serde::Deserialize)]
+struct DiscoveryDocument {
+    issuer: String,
+    jwks_uri: String,
+}
+
+/// A single configured OIDC provider with its own JWKS cache.
+struct OidcProvider {
+    name: String,
+    issuer: String,
+    client_id: String,
     email_claim: String,
+    jwks_uri: String,
+    jwks: RwLock<JwkSet>,
+    last_refresh: std::sync::Mutex<Instant>,
+    http_client: reqwest::Client,
 }
 
 impl OidcValidator {
-    /// Initialize all OIDC providers by fetching their discovery documents.
-    /// This is async because each provider requires an HTTP fetch.
+    /// Initialize all OIDC providers by fetching their discovery documents and JWKS.
     pub async fn discover(configs: &[OidcProviderConfig]) -> Result<Self, String> {
-        let http_client = openidconnect::reqwest::ClientBuilder::new()
-            .redirect(openidconnect::reqwest::redirect::Policy::none())
+        let http_client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| format!("failed to build HTTP client: {e}"))?;
 
         let mut providers = Vec::with_capacity(configs.len());
 
         for config in configs {
-            let issuer_url = IssuerUrl::new(config.discovery_url.clone())
-                .map_err(|e| format!("invalid discovery URL for {}: {e}", config.name))?;
+            let discovery_url = format!(
+                "{}/.well-known/openid-configuration",
+                config.discovery_url.trim_end_matches('/')
+            );
 
-            let metadata = CoreProviderMetadata::discover_async(issuer_url, &http_client)
+            let discovery: DiscoveryDocument = http_client
+                .get(&discovery_url)
+                .send()
                 .await
-                .map_err(|e| format!("OIDC discovery failed for {}: {e}", config.name))?;
+                .map_err(|e| format!("OIDC discovery failed for {}: {e}", config.name))?
+                .json()
+                .await
+                .map_err(|e| format!("OIDC discovery parse failed for {}: {e}", config.name))?;
 
-            let issuer = metadata.issuer().as_str().to_string();
+            let initial_jwks: JwkSet = http_client
+                .get(&discovery.jwks_uri)
+                .send()
+                .await
+                .map_err(|e| format!("JWKS fetch failed for {}: {e}", config.name))?
+                .json()
+                .await
+                .map_err(|e| format!("JWKS parse failed for {}: {e}", config.name))?;
 
-            let client = DiscoveredClient::from_provider_metadata(
-                metadata,
-                ClientId::new(config.client_id.clone()),
-                None,
+            tracing::info!(
+                provider = %config.name,
+                issuer = %discovery.issuer,
+                key_count = initial_jwks.keys.len(),
+                "OIDC provider discovered, JWKS loaded"
             );
 
             providers.push(OidcProvider {
                 name: config.name.clone(),
-                issuer,
-                client,
+                issuer: discovery.issuer,
+                client_id: config.client_id.clone(),
                 email_claim: config.email_claim.clone(),
+                jwks_uri: discovery.jwks_uri,
+                jwks: RwLock::new(initial_jwks),
+                last_refresh: std::sync::Mutex::new(Instant::now()),
+                http_client: http_client.clone(),
             });
-
-            tracing::info!(
-                provider = %config.name,
-                "OIDC provider discovered successfully"
-            );
         }
 
         Ok(Self { providers })
@@ -112,25 +123,36 @@ impl OidcValidator {
             .find(|p| p.issuer == issuer)
             .ok_or_else(|| format!("no OIDC provider configured for issuer: {issuer}"))?;
 
-        // Parse the raw JWT string into an IdToken.
-        let token: openidconnect::IdToken<
-            EmptyAdditionalClaims,
-            CoreGenderClaim,
-            openidconnect::core::CoreJweContentEncryptionAlgorithm,
-            openidconnect::core::CoreJwsSigningAlgorithm,
-        > = openidconnect::IdToken::from_str(id_token)
-            .map_err(|e| format!("invalid id_token format: {e}"))?;
+        // Decode header to get kid.
+        let header = jsonwebtoken::decode_header(id_token)
+            .map_err(|e| format!("invalid token header: {e}"))?;
 
-        // Verify signature, issuer, audience. Skip nonce check because the
-        // frontend handled the PKCE flow and we only receive the id_token.
-        let verifier = provider.client.id_token_verifier();
-        token
-            .claims(&verifier, |_nonce: Option<&openidconnect::Nonce>| Ok(()))
+        // Resolve the signing key: by kid if present, single-key fallback otherwise.
+        let jwk = match &header.kid {
+            Some(kid) => provider.resolve_key(kid).await?,
+            None => provider.resolve_single_key().await?,
+        };
+
+        // Use algorithm from the JWK; fall back to JWT header.
+        let alg = jwk
+            .common
+            .key_algorithm
+            .and_then(key_algorithm_to_jwt)
+            .unwrap_or(header.alg);
+
+        let key = jsonwebtoken::DecodingKey::from_jwk(&jwk)
+            .map_err(|e| {
+                let kid = jwk.common.key_id.as_deref().unwrap_or("unknown");
+                format!("invalid JWK for kid {kid}: {e}")
+            })?;
+
+        let mut validation = jsonwebtoken::Validation::new(alg);
+        validation.set_issuer(&[&provider.issuer]);
+        validation.set_audience(&[&provider.client_id]);
+
+        jsonwebtoken::decode::<HashMap<String, serde_json::Value>>(id_token, &key, &validation)
             .map_err(|e| format!("id_token verification failed for {}: {e}", provider.name))?;
 
-        // Signature verified — now extract the configured email claim from the
-        // raw payload. The openidconnect crate doesn't expose non-standard claims
-        // like preferred_username, so we read from the decoded payload directly.
         let email = extract_email_from_payload(&payload, &provider.email_claim)?;
 
         Ok(OidcClaims { email })
@@ -138,6 +160,96 @@ impl OidcValidator {
 
     pub fn has_providers(&self) -> bool {
         !self.providers.is_empty()
+    }
+}
+
+impl OidcProvider {
+    /// Look up a JWK by kid. On cache miss, re-fetches the JWKS endpoint.
+    async fn resolve_key(&self, kid: &str) -> Result<jsonwebtoken::jwk::Jwk, String> {
+        // Fast path: key already cached.
+        {
+            let keys = self.jwks.read().await;
+            if let Some(jwk) = find_key(&keys, kid) {
+                return Ok(jwk.clone());
+            }
+        }
+
+        tracing::info!(provider = %self.name, kid, "kid not in cache, refreshing JWKS");
+
+        self.refresh_jwks().await?;
+
+        let keys = self.jwks.read().await;
+        find_key(&keys, kid).cloned().ok_or_else(|| {
+            format!(
+                "kid '{kid}' not found in JWKS for provider {} (even after refresh)",
+                self.name
+            )
+        })
+    }
+
+    /// Fallback when the JWT has no kid: use the only key if the JWKS has exactly one.
+    async fn resolve_single_key(&self) -> Result<jsonwebtoken::jwk::Jwk, String> {
+        let keys = self.jwks.read().await;
+        match keys.keys.len() {
+            1 => Ok(keys.keys[0].clone()),
+            0 => Err(format!("JWKS for provider {} has no keys", self.name)),
+            n => Err(format!(
+                "id_token has no kid and JWKS for provider {} has {n} keys — cannot pick one",
+                self.name
+            )),
+        }
+    }
+
+    async fn refresh_jwks(&self) -> Result<(), String> {
+        {
+            let last = self.last_refresh.lock().unwrap();
+            if last.elapsed() < JWKS_REFRESH_COOLDOWN {
+                tracing::debug!(provider = %self.name, "JWKS refresh skipped (cooldown)");
+                return Ok(());
+            }
+        }
+
+        let new_keys: JwkSet = self
+            .http_client
+            .get(&self.jwks_uri)
+            .send()
+            .await
+            .map_err(|e| format!("JWKS fetch failed for {}: {e}", self.name))?
+            .json()
+            .await
+            .map_err(|e| format!("JWKS parse failed for {}: {e}", self.name))?;
+
+        let key_count = new_keys.keys.len();
+
+        *self.jwks.write().await = new_keys;
+        *self.last_refresh.lock().unwrap() = Instant::now();
+
+        tracing::info!(provider = %self.name, key_count, "JWKS keys refreshed");
+
+        Ok(())
+    }
+}
+
+fn find_key<'a>(jwks: &'a JwkSet, kid: &str) -> Option<&'a jsonwebtoken::jwk::Jwk> {
+    jwks.keys
+        .iter()
+        .find(|k| k.common.key_id.as_deref() == Some(kid))
+}
+
+fn key_algorithm_to_jwt(ka: jsonwebtoken::jwk::KeyAlgorithm) -> Option<jsonwebtoken::Algorithm> {
+    use jsonwebtoken::Algorithm;
+    use jsonwebtoken::jwk::KeyAlgorithm as KA;
+    match ka {
+        KA::RS256 => Some(Algorithm::RS256),
+        KA::RS384 => Some(Algorithm::RS384),
+        KA::RS512 => Some(Algorithm::RS512),
+        KA::ES256 => Some(Algorithm::ES256),
+        KA::ES384 => Some(Algorithm::ES384),
+        KA::PS256 => Some(Algorithm::PS256),
+        KA::PS384 => Some(Algorithm::PS384),
+        KA::PS512 => Some(Algorithm::PS512),
+        KA::EdDSA => Some(Algorithm::EdDSA),
+        _ => None,
     }
 }
 
@@ -161,8 +273,7 @@ pub fn parse_insecure_claims(token: &str) -> Result<OidcClaims, String> {
 }
 
 /// Decode the JWT payload (second segment) into a generic JSON map.
-/// Does NOT verify the signature — call this only after openidconnect
-/// has verified the token, or in ALLOW_INSECURE mode.
+/// Does NOT verify the signature.
 fn decode_jwt_payload(token: &str) -> Result<HashMap<String, serde_json::Value>, String> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
