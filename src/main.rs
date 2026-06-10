@@ -113,10 +113,11 @@ async fn main() {
 
     // -- OIDC providers (auto-discovered from env vars) --
     let oidc = if config.oidc_providers.is_empty() {
-        tracing::warn!("no OIDC providers configured");
+        tracing::warn!("no OIDC providers configured — /auth/token will reject every id_token");
         Arc::new(OidcValidator::empty())
     } else {
-        match OidcValidator::discover(&config.oidc_providers).await {
+        let cooldown = std::time::Duration::from_secs(config.jwks_refresh_cooldown_secs);
+        match OidcValidator::discover(&config.oidc_providers, cooldown).await {
             Ok(v) => Arc::new(v),
             Err(e) => {
                 tracing::error!(error = %e, "failed to initialize OIDC providers");
@@ -144,7 +145,6 @@ async fn main() {
         refresh_store,
         bearer_validator,
         cookie_config,
-        allow_insecure: config.allow_insecure,
         auth_check_silent_refresh: config.auth_check_silent_refresh,
     };
 

@@ -56,8 +56,6 @@ authCheck:
 # One of: local, dev, test, prod.
 environment: "prod"
 
-# When true, OIDC signature verification is skipped. NEVER enable in prod.
-allowInsecure: false
 
 # OIDC provider auto-discovery. Each entry becomes a set of env vars:
 #   OIDC_{NAME}_DISCOVERY_URL

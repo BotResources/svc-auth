@@ -4,6 +4,21 @@ All notable changes to `svc-auth` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.3.0
+
+### Removed
+
+- **BREAKING / Security**: `ALLOW_INSECURE` is gone — the config key, the unverified-claims fallback in `/auth/token`, and `parse_insecure_claims()`. The shipped binary has no code path that skips OIDC verification: an id_token that does not verify against a configured provider is rejected, in every environment. The Helm chart's `allowInsecure` value is removed as well. Closes the platform epic "Eliminate the ALLOW_UNSECURE auth bypass" (ws-cc-platform#1 / #3)
+
+### Added
+
+- E2E coverage of the OIDC verification path (ws-cc-platform#6), against the pilotable test IdPs from [br-e2e-harness](https://github.com/BotResources/br-e2e-harness): full `/auth/token` flow (valid id_token → access + refresh cookies → `/auth/check` → `/auth/refresh` rotation), JWKS refresh on unknown `kid` after an IdP key rotation, rejection of tokens signed with keys absent from the JWKS, cooldown semantics proven via the fixture's fetch counters (suppressed re-fetch inside the window, re-fetch after expiry), multi-provider routing by issuer (including an Entra-shaped `preferred_username` claim), audience mismatch and expired-token rejection
+- `JWKS_REFRESH_COOLDOWN_SECONDS` (default `60`): the per-provider JWKS re-fetch cooldown is now configurable; e2e stacks lower it instead of stalling
+
+### Migration
+
+- Deployments that set `ALLOW_INSECURE=true` (local/e2e stacks) must instead run a real test IdP and declare it via `OIDC_*_DISCOVERY_URL` / `OIDC_*_CLIENT_ID` — see `.env.example` and `docker-compose.e2e.yml`
+
 ## 0.2.2
 
 ### Fixed

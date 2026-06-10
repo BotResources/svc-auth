@@ -7,8 +7,24 @@ cd "$REPO_ROOT"
 echo "==> Building svc-auth (release)..."
 cargo build --release --locked
 
-echo "==> Starting NATS..."
+echo "==> Starting NATS + OIDC test IdPs..."
 docker compose -f docker-compose.e2e.yml up -d --wait
+
+echo "==> Waiting for the OIDC test IdPs (RSA pool generation)..."
+for port in 9100 9101; do
+    healthy=false
+    for _ in $(seq 1 60); do
+        if curl -sf "http://localhost:${port}/health" > /dev/null 2>&1; then
+            healthy=true
+            break
+        fi
+        sleep 0.5
+    done
+    if [ "$healthy" != "true" ]; then
+        echo "==> ERROR: OIDC test IdP on :${port} did not become healthy within 30s"
+        exit 1
+    fi
+done
 
 echo "==> Starting svc-auth..."
 export NATS_URL="nats://localhost:4222"
@@ -19,6 +35,18 @@ export PORT="8002"
 export SECURE_COOKIES="false"
 export AUTH_CHECK_SILENT_REFRESH="false"
 export RUST_LOG="info"
+
+# OIDC: two real providers backed by the pilotable test IdPs. Provider B
+# uses a custom email claim (Entra-shaped) on purpose.
+export OIDC_E2EA_DISCOVERY_URL="http://localhost:9100"
+export OIDC_E2EA_CLIENT_ID="e2e-client"
+export OIDC_E2EB_DISCOVERY_URL="http://localhost:9101"
+export OIDC_E2EB_CLIENT_ID="e2e-client-b"
+export OIDC_E2EB_EMAIL_CLAIM="preferred_username"
+
+# Short cooldown so the e2e suite can prove cooldown semantics (suppressed
+# re-fetch, then allowed again) without stalling. Production default is 60s.
+export JWKS_REFRESH_COOLDOWN_SECONDS="2"
 
 target/release/svc-auth &
 SVC_AUTH_PID=$!

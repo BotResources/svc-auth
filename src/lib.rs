@@ -36,7 +36,6 @@ pub struct AppState {
     pub refresh_store: Arc<RefreshTokenStore>,
     pub bearer_validator: Option<Arc<BearerValidator>>,
     pub cookie_config: CookieConfig,
-    pub allow_insecure: bool,
     /// When false, `/auth/check` does not rotate refresh tokens on expired
     /// JWT — it returns 401 instead. Clients must call `/auth/refresh`
     /// explicitly. Set this for k8s ingress middlewares that cannot forward

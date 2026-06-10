@@ -19,7 +19,6 @@ use crate::cookie::{
     build_access_cookie, build_refresh_cookie, build_session_cookie, extract_session_cookie,
 };
 use crate::error::AppError;
-use crate::oidc_validator::parse_insecure_claims;
 use crate::refresh_store::RefreshToken;
 
 #[derive(Deserialize)]
@@ -74,29 +73,12 @@ async fn handle_token(state: &AppState, body: &TokenRequest) -> Result<Response,
         .filter(|t| !t.is_empty())
         .ok_or_else(|| AppError::Validation("id_token is required".into()))?;
 
-    // Verify the OIDC id_token and extract email.
-    let claims = if state.allow_insecure {
-        // In local dev, try OIDC verification first; fall back to insecure parsing.
-        if state.oidc.has_providers() {
-            match state.oidc.verify_id_token(id_token).await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "OIDC verification failed, using ALLOW_INSECURE fallback"
-                    );
-                    parse_insecure_claims(id_token).map_err(AppError::Unauthorized)?
-                }
-            }
-        } else {
-            parse_insecure_claims(id_token).map_err(AppError::Unauthorized)?
-        }
-    } else {
-        state.oidc.verify_id_token(id_token).await.map_err(|msg| {
-            tracing::warn!(error = %msg, "OIDC id_token verification failed");
-            AppError::Unauthorized(msg)
-        })?
-    };
+    // Verify the OIDC id_token and extract email. There is no bypass: a
+    // token that does not verify against a configured provider is rejected.
+    let claims = state.oidc.verify_id_token(id_token).await.map_err(|msg| {
+        tracing::warn!(error = %msg, "OIDC id_token verification failed");
+        AppError::Unauthorized(msg)
+    })?;
 
     let email = &claims.email;
     if email.is_empty() {
