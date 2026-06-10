@@ -29,6 +29,8 @@ pub enum Environment {
     Local,
     Dev,
     Test,
+    Uat,
+    Staging,
     Prod,
 }
 
@@ -38,7 +40,29 @@ impl std::fmt::Display for Environment {
             Self::Local => write!(f, "local"),
             Self::Dev => write!(f, "dev"),
             Self::Test => write!(f, "test"),
+            Self::Uat => write!(f, "uat"),
+            Self::Staging => write!(f, "stg"),
             Self::Prod => write!(f, "prod"),
+        }
+    }
+}
+
+impl Environment {
+    /// Parse the `ENVIRONMENT` value. Fails closed: an unrecognised value is
+    /// rejected rather than silently treated as `Local`. For an auth service,
+    /// defaulting an unknown environment to the most-permissive mode is the
+    /// wrong direction — a typo'd or new environment must fail loud at boot.
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "local" => Ok(Self::Local),
+            "dev" => Ok(Self::Dev),
+            "test" => Ok(Self::Test),
+            "uat" => Ok(Self::Uat),
+            "stg" => Ok(Self::Staging),
+            "prod" => Ok(Self::Prod),
+            other => Err(format!(
+                "ENVIRONMENT must be one of local|dev|test|uat|stg|prod, got {other:?}"
+            )),
         }
     }
 }
@@ -63,15 +87,11 @@ impl AppConfig {
         let refresh_token_ttl = parse_u64_env("JWT_REFRESH_TOKEN_TTL", 604_800);
         let port = parse_u16_env("PORT", 8002);
 
-        let environment = match std::env::var("ENVIRONMENT")
-            .unwrap_or_else(|_| "local".to_string())
-            .as_str()
-        {
-            "dev" => Environment::Dev,
-            "test" => Environment::Test,
-            "prod" => Environment::Prod,
-            _ => Environment::Local,
-        };
+        let environment = Environment::parse(
+            std::env::var("ENVIRONMENT")
+                .unwrap_or_else(|_| "local".to_string())
+                .as_str(),
+        )?;
 
         let secure_cookies = parse_bool_env("SECURE_COOKIES", true);
 
@@ -224,5 +244,26 @@ mod tests {
         // Empty string is present-but-empty; not "true" or "1" → falls through
         // to the map() comparison returning false (which the current rule does).
         assert!(!parse_bool_value(Some(""), true));
+    }
+
+    #[test]
+    fn environment_parses_all_known_values() {
+        for (raw, expected) in [
+            ("local", Environment::Local),
+            ("dev", Environment::Dev),
+            ("test", Environment::Test),
+            ("uat", Environment::Uat),
+            ("stg", Environment::Staging),
+            ("prod", Environment::Prod),
+        ] {
+            assert_eq!(Environment::parse(raw).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn environment_rejects_unknown_value() {
+        // Fail closed — must NOT silently fall back to Local.
+        assert!(Environment::parse("sandbox").is_err());
+        assert!(Environment::parse("Prod").is_err());
     }
 }
