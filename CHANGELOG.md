@@ -4,6 +4,24 @@ All notable changes to `svc-auth` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.3.1
+
+### Changed
+
+- **Security: `ENVIRONMENT` parsing now fails closed.** Previously an
+  unrecognised `ENVIRONMENT` value silently fell back to `Environment::Local`
+  (`_ => Environment::Local`). For an auth service, defaulting an unknown
+  environment to the most-permissive mode is the wrong direction — a typo'd
+  or newly-introduced environment now fails loud at boot instead. Concretely,
+  `ENVIRONMENT=uat` / `ENVIRONMENT=stg` were being treated as `Local`, which
+  bypassed the "non-local requires a configured OIDC provider" guard.
+
+### Added
+
+- `uat` and `stg` (Staging) are now recognised `ENVIRONMENT` values, parsed
+  by a new pure `Environment::parse` helper with unit coverage (known values
+  accepted, unknown/wrong-case rejected).
+
 ## 0.3.0
 
 ### Removed
