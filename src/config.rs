@@ -75,7 +75,9 @@ impl AppConfig {
 
         let secure_cookies = parse_bool_env("SECURE_COOKIES", true);
 
-        let jwks_refresh_cooldown_secs = parse_u64_env("JWKS_REFRESH_COOLDOWN_SECONDS", 60);
+        // Floor at 1s: 0 would disable the re-fetch storm protection entirely
+        // (every unknown kid would hit the IdP's JWKS endpoint).
+        let jwks_refresh_cooldown_secs = parse_u64_env("JWKS_REFRESH_COOLDOWN_SECONDS", 60).max(1);
 
         // Default true = preserves legacy nginx/OpenResty behavior. Set to
         // false behind k8s ingress middlewares (Traefik ForwardAuth,

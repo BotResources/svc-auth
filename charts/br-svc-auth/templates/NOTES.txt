@@ -11,13 +11,10 @@ Endpoints (in-cluster):
 
 {{- if not .Values.oidcProviders }}
 
-WARNING: no OIDC providers configured. /auth/token will fail unless ALLOW_INSECURE=true.
-         Set oidcProviders[] in your values file.
-{{- end }}
-
-{{- if .Values.allowInsecure }}
-
-WARNING: allowInsecure=true. OIDC signature verification is disabled — LOCAL DEV ONLY.
+WARNING: no OIDC providers configured. /auth/token will reject every id_token —
+         there is no bypass. Declare at least one provider in oidcProviders[]
+         (for local/e2e stacks, deploy the br-oidc-test-idp fixture from
+         br-e2e-harness and declare it like any provider).
 {{- end }}
 
 JWT signing secret must exist in Kubernetes Secret "{{ .Values.jwt.secret.existingSecret }}"

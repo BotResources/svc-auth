@@ -163,10 +163,6 @@ impl OidcValidator {
 
         Ok(OidcClaims { email })
     }
-
-    pub fn has_providers(&self) -> bool {
-        !self.providers.is_empty()
-    }
 }
 
 impl OidcProvider {

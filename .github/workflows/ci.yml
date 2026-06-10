@@ -203,8 +203,8 @@ jobs:
       OIDC_E2EB_CLIENT_ID: e2e-client-b
       OIDC_E2EB_EMAIL_CLAIM: preferred_username
       # Short cooldown so the suite can prove cooldown semantics without
-      # stalling. Production default is 60s.
-      JWKS_REFRESH_COOLDOWN_SECONDS: "2"
+      # stalling (the cooldown test waits 2.5x this). Production default 60s.
+      JWKS_REFRESH_COOLDOWN_SECONDS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -221,7 +221,11 @@ jobs:
               curl -sf "http://localhost:${port}/health" > /dev/null 2>&1 && break
               sleep 0.5
             done
-            curl -sf "http://localhost:${port}/health" > /dev/null 2>&1
+            if ! curl -sf "http://localhost:${port}/health" > /dev/null 2>&1; then
+              echo "::error::OIDC test IdP on :${port} did not become healthy within 30s"
+              docker compose -f docker-compose.e2e.yml logs || true
+              exit 1
+            fi
           done
 
       - name: build + start svc-auth

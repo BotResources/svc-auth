@@ -46,7 +46,8 @@ export OIDC_E2EB_EMAIL_CLAIM="preferred_username"
 
 # Short cooldown so the e2e suite can prove cooldown semantics (suppressed
 # re-fetch, then allowed again) without stalling. Production default is 60s.
-export JWKS_REFRESH_COOLDOWN_SECONDS="2"
+# The e2e cooldown test waits 2.5x this value (it reads the same env var).
+export JWKS_REFRESH_COOLDOWN_SECONDS="${JWKS_REFRESH_COOLDOWN_SECONDS:-1}"
 
 target/release/svc-auth &
 SVC_AUTH_PID=$!

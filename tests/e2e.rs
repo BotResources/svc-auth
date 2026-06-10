@@ -610,7 +610,15 @@ async fn oidc_kid_miss_triggers_jwks_refresh_end_to_end() {
 async fn oidc_unknown_key_rejected_and_jwks_refetch_cooldown_gated() {
     let client = Client::new();
     let idp_b = idp_b_url();
-    let cooldown = std::time::Duration::from_millis(2500);
+    // Wait 2.5x the stack's configured cooldown (up.sh / ci.yml / run.sh set
+    // 1s for e2e): derived from the same env var so nobody can change one
+    // side and silently open a flakiness window.
+    let cooldown_secs: u64 = std::env::var("JWKS_REFRESH_COOLDOWN_SECONDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1)
+        .max(1);
+    let cooldown = std::time::Duration::from_millis(cooldown_secs * 2000 + 500);
 
     fn unknown_key_token(kid: &str) -> serde_json::Value {
         serde_json::json!({
