@@ -95,8 +95,9 @@ jobs:
   # We run both cargo-audit AND cargo-deny because they cover different ground:
   # audit checks your Cargo.lock against RustSec advisories; deny also checks
   # licenses, banned crates, and allowed sources — complementary, not redundant.
-  # We do NOT use EmbarkStudios/cargo-deny-action (no customisation surface) or
-  # rustsec/audit-check (compiles the tool on every run).
+  # One taiki-e install step covers all three tools, and the invocations stay
+  # plain `cargo …` commands we control — same layout as be-botresources.ai
+  # (the reference implementation).
   # ---------------------------------------------------------------------------
   supply-chain:
     name: supply chain (audit + deny + machete)
