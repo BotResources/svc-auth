@@ -12,8 +12,6 @@ use tokio::sync::RwLock;
 
 use crate::config::OidcProviderConfig;
 
-const JWKS_REFRESH_COOLDOWN: Duration = Duration::from_secs(60);
-
 /// Claims extracted from a verified OIDC id_token.
 pub struct OidcClaims {
     pub email: String,
@@ -40,12 +38,19 @@ struct OidcProvider {
     jwks_uri: String,
     jwks: RwLock<JwkSet>,
     last_refresh: std::sync::Mutex<Instant>,
+    refresh_cooldown: Duration,
     http_client: reqwest::Client,
 }
 
 impl OidcValidator {
     /// Initialize all OIDC providers by fetching their discovery documents and JWKS.
-    pub async fn discover(configs: &[OidcProviderConfig]) -> Result<Self, String> {
+    ///
+    /// `refresh_cooldown` bounds how often a provider's JWKS is re-fetched on
+    /// unknown-`kid` misses (re-fetch storms from invalid tokens).
+    pub async fn discover(
+        configs: &[OidcProviderConfig],
+        refresh_cooldown: Duration,
+    ) -> Result<Self, String> {
         let http_client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -92,6 +97,7 @@ impl OidcValidator {
                 jwks_uri: discovery.jwks_uri,
                 jwks: RwLock::new(initial_jwks),
                 last_refresh: std::sync::Mutex::new(Instant::now()),
+                refresh_cooldown,
                 http_client: http_client.clone(),
             });
         }
@@ -99,8 +105,9 @@ impl OidcValidator {
         Ok(Self { providers })
     }
 
-    /// Create an empty validator (no providers). Used when ALLOW_INSECURE is true
-    /// and no providers are configured.
+    /// Create an empty validator (no providers). Only reachable in local
+    /// environments (config rejects the absence of providers elsewhere);
+    /// every id_token verification against it fails.
     pub fn empty() -> Self {
         Self {
             providers: Vec::new(),
@@ -156,10 +163,6 @@ impl OidcValidator {
 
         Ok(OidcClaims { email })
     }
-
-    pub fn has_providers(&self) -> bool {
-        !self.providers.is_empty()
-    }
 }
 
 impl OidcProvider {
@@ -202,7 +205,7 @@ impl OidcProvider {
     async fn refresh_jwks(&self) -> Result<(), String> {
         {
             let last = self.last_refresh.lock().unwrap();
-            if last.elapsed() < JWKS_REFRESH_COOLDOWN {
+            if last.elapsed() < self.refresh_cooldown {
                 tracing::debug!(provider = %self.name, "JWKS refresh skipped (cooldown)");
                 return Ok(());
             }
@@ -250,25 +253,6 @@ fn key_algorithm_to_jwt(ka: jsonwebtoken::jwk::KeyAlgorithm) -> Option<jsonwebto
         KA::EdDSA => Some(Algorithm::EdDSA),
         _ => None,
     }
-}
-
-/// Parse id_token claims without verification (ALLOW_INSECURE mode only).
-pub fn parse_insecure_claims(token: &str) -> Result<OidcClaims, String> {
-    let payload = decode_jwt_payload(token)?;
-
-    // preferred_username takes priority over email (Entra pattern).
-    let email = payload
-        .get("preferred_username")
-        .and_then(|v| v.as_str())
-        .or_else(|| payload.get("email").and_then(|v| v.as_str()))
-        .unwrap_or_default()
-        .to_string();
-
-    if email.is_empty() {
-        return Err("no email found in id_token claims".to_string());
-    }
-
-    Ok(OidcClaims { email })
 }
 
 /// Decode the JWT payload (second segment) into a generic JSON map.

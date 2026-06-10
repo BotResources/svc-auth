@@ -194,15 +194,51 @@ jobs:
       SECURE_COOKIES: "false"
       AUTH_CHECK_SILENT_REFRESH: "false"
       RUST_LOG: info
+      # Two real OIDC providers backed by the pilotable test IdPs from
+      # br-e2e-harness (started by docker-compose.e2e.yml). B uses an
+      # Entra-shaped email claim on purpose.
+      OIDC_E2EA_DISCOVERY_URL: http://localhost:9100
+      OIDC_E2EA_CLIENT_ID: e2e-client
+      OIDC_E2EB_DISCOVERY_URL: http://localhost:9101
+      OIDC_E2EB_CLIENT_ID: e2e-client-b
+      OIDC_E2EB_EMAIL_CLAIM: preferred_username
+      # Short cooldown so the suite can prove cooldown semantics without
+      # stalling (the cooldown test waits 2.5x this). Production default 60s.
+      JWKS_REFRESH_COOLDOWN_SECONDS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: start nats
+      - name: start nats + oidc test idps
+        # Plain `docker run` (not docker-compose.e2e.yml): the arc-ubuntu
+        # runner image ships docker without the compose plugin. The compose
+        # file stays the local-dev path (scripts/e2e/up.sh); keep both in
+        # sync when touching the stack.
         run: |
           docker run -d --name nats -p 4222:4222 nats:2.10-alpine -js
+          docker run -d --name oidc-idp-a -p 9100:9100 \
+            -e ISSUER=http://localhost:9100 -e DEFAULT_CLIENT_ID=e2e-client \
+            ghcr.io/botresources/br-oidc-test-idp:0.1.0
+          docker run -d --name oidc-idp-b -p 9101:9101 \
+            -e ISSUER=http://localhost:9101 -e PORT=9101 -e DEFAULT_CLIENT_ID=e2e-client-b \
+            ghcr.io/botresources/br-oidc-test-idp:0.1.0
           until nc -z localhost 4222 2>/dev/null; do sleep 0.5; done
+          # The IdP image has no in-container healthcheck (bare static
+          # binary): wait for /health from the host — svc-auth's startup
+          # OIDC discovery needs them up.
+          for port in 9100 9101; do
+            for _ in $(seq 1 60); do
+              curl -sf "http://localhost:${port}/health" > /dev/null 2>&1 && break
+              sleep 0.5
+            done
+            if ! curl -sf "http://localhost:${port}/health" > /dev/null 2>&1; then
+              echo "::error::OIDC test IdP on :${port} did not become healthy within 30s"
+              docker logs oidc-idp-a || true
+              docker logs oidc-idp-b || true
+              exit 1
+            fi
+          done
 
       - name: build + start svc-auth
         run: |
@@ -220,4 +256,4 @@ jobs:
         if: always()
         run: |
           pkill -f "target/release/svc-auth" || true
-          docker rm -f nats || true
+          docker rm -f nats oidc-idp-a oidc-idp-b || true

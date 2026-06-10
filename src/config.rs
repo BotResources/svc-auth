@@ -15,10 +15,13 @@ pub struct AppConfig {
     pub refresh_token_ttl: u64,
     pub port: u16,
     pub environment: Environment,
-    pub allow_insecure: bool,
     pub secure_cookies: bool,
     pub auth_check_silent_refresh: bool,
     pub oidc_providers: Vec<OidcProviderConfig>,
+    /// Minimum delay between two JWKS re-fetches for the same provider
+    /// (unknown-`kid` storm protection). Default 60s; e2e suites lower it
+    /// to exercise the cooldown without stalling.
+    pub jwks_refresh_cooldown_secs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,12 +73,11 @@ impl AppConfig {
             _ => Environment::Local,
         };
 
-        let allow_insecure = parse_bool_env("ALLOW_INSECURE", false);
-        if allow_insecure && environment == Environment::Prod {
-            return Err("ALLOW_INSECURE=true is rejected in production".to_string());
-        }
-
         let secure_cookies = parse_bool_env("SECURE_COOKIES", true);
+
+        // Floor at 1s: 0 would disable the re-fetch storm protection entirely
+        // (every unknown kid would hit the IdP's JWKS endpoint).
+        let jwks_refresh_cooldown_secs = parse_u64_env("JWKS_REFRESH_COOLDOWN_SECONDS", 60).max(1);
 
         // Default true = preserves legacy nginx/OpenResty behavior. Set to
         // false behind k8s ingress middlewares (Traefik ForwardAuth,
@@ -93,10 +95,10 @@ impl AppConfig {
             refresh_token_ttl,
             port,
             environment,
-            allow_insecure,
             secure_cookies,
             auth_check_silent_refresh,
             oidc_providers,
+            jwks_refresh_cooldown_secs,
         })
     }
 }
@@ -148,7 +150,8 @@ fn discover_oidc_providers(environment: &Environment) -> Result<Vec<OidcProvider
 
     if providers.is_empty() {
         tracing::warn!(
-            "no OIDC providers configured; id_token verification will require ALLOW_INSECURE=true"
+            "no OIDC providers configured; /auth/token will reject every id_token — \
+             for local stacks, deploy the br-oidc-test-idp fixture and declare it as a provider"
         );
     }
 

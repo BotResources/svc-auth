@@ -37,7 +37,7 @@ This chart assumes the following exist before deployment — per the "infrastruc
 |---|---|---|
 | `nats.url` | Yes | NATS server URL reachable from the pod. |
 | `jwt.secret.existingSecret` | Yes | Name of existing Secret with signing key. |
-| `oidcProviders` | If `allowInsecure=false` | List of OIDC providers; empty is only valid in dev with `allowInsecure=true`. |
+| `oidcProviders` | In non-local environments | List of OIDC providers. Empty is tolerated only with `environment: local`, where `/auth/token` then rejects every id_token (there is no bypass). |
 
 ## OIDC providers
 

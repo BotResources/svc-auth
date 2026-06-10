@@ -59,8 +59,6 @@ spec:
               value: {{ .Values.authCheck.silentRefresh | quote }}
             - name: ENVIRONMENT
               value: {{ .Values.environment | quote }}
-            - name: ALLOW_INSECURE
-              value: {{ .Values.allowInsecure | quote }}
             - name: RUST_LOG
               value: {{ .Values.logLevel | quote }}
             - name: JWT_SECRET

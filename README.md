@@ -22,7 +22,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-For local development without an OIDC provider, set `ALLOW_INSECURE=true`.
+There is **no verification bypass**: every id_token must verify against a configured provider, in every environment. For local development or e2e, run the pilotable test IdP from [br-e2e-harness](https://github.com/BotResources/br-e2e-harness) (`ghcr.io/botresources/br-oidc-test-idp`) and declare it like any provider — see `docker-compose.e2e.yml` and `.env.example`.
 
 ## Configuration
 
@@ -33,7 +33,7 @@ OIDC providers are auto-detected at startup by scanning for `OIDC_*_DISCOVERY_UR
 ## Architecture
 
 - **NATS KV** for refresh token storage and bearer token validation (no database)
-- **Multi-provider OIDC** with auto-discovery
+- **Multi-provider OIDC** with auto-discovery, per-provider JWKS cache, refresh on unknown `kid` (cooldown-gated, `JWKS_REFRESH_COOLDOWN_SECONDS`)
 - **Token rotation** with family-based revocation (reuse detection)
 - **HttpOnly cookies** with `__Host-` prefix in production
 - **Silent refresh** on expired access tokens via `auth_check`

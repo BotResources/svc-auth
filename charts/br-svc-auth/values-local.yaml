@@ -15,7 +15,6 @@ nats:
   url: "nats://nats:4222"
 
 environment: "local"
-allowInsecure: true    # Skip OIDC verification (LOCAL ONLY)
 cookies:
   secure: false        # Cookies over plain HTTP in K3d
 
@@ -31,7 +30,13 @@ jwt:
     existingSecret: "br-svc-auth-jwt"
     existingSecretKey: "secret"
 
-# No OIDC providers — /auth/token only works with ALLOW_INSECURE=true.
+# No OIDC providers — /auth/token rejects every id_token. To exercise the
+# OIDC flow locally, deploy the pilotable test IdP from br-e2e-harness
+# (ghcr.io/botresources/br-oidc-test-idp) and declare it here:
+#   oidcProviders:
+#     - name: e2e
+#       discoveryUrl: http://oidc-idp:9100
+#       clientId: e2e-client
 oidcProviders: []
 
 resources:
