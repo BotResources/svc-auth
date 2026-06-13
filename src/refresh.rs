@@ -1,12 +1,3 @@
-//! POST /auth/refresh -- refresh token rotation.
-//!
-//! Reads the refresh token from an HttpOnly cookie (browser clients) or
-//! from the request body (non-browser clients). Validates the token, rotates
-//! it (marks old as used, creates new in same family), and sets new cookies.
-//!
-//! svc-auth does not look up users or check statuses. The refresh token
-//! carries the email in its sub claim. A new JWT is signed with the same email.
-
 use axum::extract::State;
 use axum::http::header::SET_COOKIE;
 use axum::http::{HeaderMap, StatusCode};
@@ -73,17 +64,14 @@ async fn handle_refresh(
     body: &RefreshRequest,
     headers: &HeaderMap,
 ) -> Result<Response, AppError> {
-    // Resolve refresh token from body (priority) or cookie.
     let refresh_jwt = match resolve_refresh_token(body, headers, &state.cookie_config) {
         Some(t) => t,
         None => {
-            // No token available -- return 200 with status.
             let resp = serde_json::json!({ "status": "no_session" });
             return Ok((StatusCode::OK, axum::Json(resp)).into_response());
         }
     };
 
-    // Verify refresh token JWT.
     let claims = state
         .jwt
         .verify_refresh_token(&refresh_jwt)
@@ -92,11 +80,9 @@ async fn handle_refresh(
             JwtError::Invalid(_) => AppError::Unauthorized("invalid_refresh_token".into()),
         })?;
 
-    // Parse jti.
     let jti = Uuid::parse_str(&claims.jti)
         .map_err(|_| AppError::Unauthorized("invalid_refresh_token".into()))?;
 
-    // Look up refresh token in NATS KV.
     let (token_row, revision) = state
         .refresh_store
         .find_by_id(jti)
@@ -104,7 +90,6 @@ async fn handle_refresh(
         .map_err(|e| AppError::Internal(e.to_string()))?
         .ok_or_else(|| AppError::Unauthorized("invalid_refresh_token".into()))?;
 
-    // Family revocation check.
     if state
         .refresh_store
         .is_family_revoked(token_row.family_id)
@@ -113,7 +98,6 @@ async fn handle_refresh(
         return Err(AppError::Unauthorized("token_family_revoked".into()));
     }
 
-    // Reuse detection.
     if token_row.used_at.is_some() {
         tracing::warn!(
             family_id = %token_row.family_id,
@@ -123,7 +107,6 @@ async fn handle_refresh(
         return Err(AppError::Unauthorized("token_reuse_detected".into()));
     }
 
-    // Rotate: sign new tokens with the same email.
     let email = &claims.sub;
     let new_access = state
         .jwt
@@ -135,7 +118,6 @@ async fn handle_refresh(
         .sign_refresh_token(email)
         .map_err(AppError::Internal)?;
 
-    // Store new refresh token.
     let new_token = RefreshToken {
         id: new_token_id,
         email: email.clone(),
@@ -152,7 +134,6 @@ async fn handle_refresh(
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    // Now mark old token as used (new row exists, FK satisfied).
     state
         .refresh_store
         .mark_used(jti, new_token_id, revision)
@@ -161,7 +142,6 @@ async fn handle_refresh(
 
     let access_ttl = state.jwt.access_ttl_secs();
 
-    // Build cookies.
     let access_cookie = build_access_cookie(&new_access, &state.cookie_config);
     let refresh_cookie = build_refresh_cookie(&new_refresh_jwt, &state.cookie_config);
 
@@ -183,7 +163,6 @@ async fn handle_refresh(
     Ok(response)
 }
 
-/// Resolve refresh token: body takes precedence over cookie.
 fn resolve_refresh_token(
     body: &RefreshRequest,
     headers: &HeaderMap,

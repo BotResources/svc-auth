@@ -1,5 +1,24 @@
 # svc-auth
 
+> [!IMPORTANT]
+> **This repository is maintained for BotResources and its authorized clients.**
+> It is published under MIT and made available read-only for visibility and
+> reuse. The MIT license governs your rights to use, modify, and fork the code;
+> the rest of this notice describes our operational stance, not a legal
+> restriction.
+>
+> **We do not accept external pull requests, issues, or support requests.**
+> Issues and Discussions are disabled. PRs from accounts that are not on the
+> internal contributor allowlist will be closed without review. Forks are
+> permitted by MIT and we do not (and cannot) prevent them; we simply do not
+> monitor, support, or accept contributions from forks outside the BR
+> commercial relationship.
+>
+> - Clients with a commercial relationship: contact your BR account manager.
+> - Security reports: see [SECURITY.md](SECURITY.md) (private email channel).
+> - This is not a community-supported project. No support is provided through
+>   GitHub.
+
 Portable, self-contained REST authentication gatekeeper. Zero infrastructure dependencies beyond NATS (no database).
 
 Proves identity ("the human behind this request controls this email") via multi-provider OIDC, signs internal JWTs, and validates bearer tokens. Does **not** manage users, permissions, or sessions -- that's the consuming project's responsibility.
@@ -45,6 +64,18 @@ OIDC providers are auto-detected at startup by scanning for `OIDC_*_DISCOVERY_UR
   the `/readyz` readiness gate (flipped UP once the NATS KV buckets are reachable
   at startup) via `br-util-axum-readiness`
 
+### Why it is the way it is
+
+| Thing | Why it is the way it is |
+|---|---|
+| `JWT verify` leeway = 5s (`CLOCK_SKEW_LEEWAY_SECS`) | `jsonwebtoken`'s default leeway is 60s, which silently extends every token's lifetime by a minute. 5s tolerates real clock skew without materially widening the validity window. |
+| `JWKS_REFRESH_COOLDOWN_SECONDS` floored at 1s (`JWKS_REFRESH_COOLDOWN_FLOOR_SECS`) | An unknown `kid` triggers a JWKS re-fetch. A cooldown of 0 would let a stream of invalid tokens (each with a bogus `kid`) hammer the IdP's JWKS endpoint — a self-inflicted DoS amplifier. The floor keeps storm protection always on. |
+| `Environment::parse` rejects unknown values | Auth fails closed: an unrecognised `ENVIRONMENT` (a typo, or a new env nobody wired up) must abort at boot, never silently degrade to the most-permissive `Local` mode. |
+| Routing id_tokens on the **unverified** `iss` (`decode_jwt_payload_unverified`) | The issuer is only used to *select* the provider; the signature, issuer, and audience are then verified against that provider's JWKS and config. Picking the wrong provider on a forged `iss` cannot succeed — verification still fails. |
+| Refresh rotation stores the new token **before** marking the old one used | If the order were reversed, a crash between the two writes would invalidate the old token with no replacement persisted — silently logging the user out. Store-then-mark keeps a valid token reachable at every point. |
+| `mark_used` takes the KV `revision` (CAS) | Two concurrent refreshes of the same token must not both succeed: the compare-and-swap on the revision makes the second writer fail — a lost-update guard on rotation (distinct from the `used_at` replay check, which is the actual reuse-detection). |
+| `/auth/token` and `/auth/refresh` return only metadata; the access/refresh tokens go in `Set-Cookie` | Credentials are never placed in a response body that a client (or a log) could read back — they ride HttpOnly cookies only. |
+
 ## Kubernetes deployment
 
 A minimal Helm chart is published to `oci://ghcr.io/botresources/charts/br-svc-auth` alongside each image release. See [`charts/br-svc-auth/`](charts/br-svc-auth/) for the chart source and [`charts/br-svc-auth/values-local.yaml`](charts/br-svc-auth/values-local.yaml) for a K3d example.
@@ -86,4 +117,4 @@ Manual publish / dry-run:
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

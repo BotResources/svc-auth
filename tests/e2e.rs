@@ -1,12 +1,3 @@
-//! E2E tests for svc-auth.
-//!
-//! These tests hit the real service — no mocks, no bypass. The OIDC path is
-//! exercised against the pilotable test IdPs from br-e2e-harness (see
-//! docker-compose.e2e.yml): real discovery, real JWKS, real RS256 signatures.
-//! Requires: NATS + the two IdP fixtures + svc-auth (see scripts/e2e/up.sh).
-//!
-//! Run: cargo test --test e2e -- --ignored
-
 use reqwest::Client;
 
 fn base_url() -> String {
@@ -105,10 +96,6 @@ async fn metrics_exposes_prometheus_exposition() {
     assert_eq!(resp.status(), 200);
     assert!(resp.text().await.unwrap().contains("process_"));
 }
-
-// =============================================================================
-// Issue #16: session ID cookie for anonymous and authenticated users
-// =============================================================================
 
 #[tokio::test]
 #[ignore]
@@ -295,10 +282,6 @@ async fn refresh_no_session_sets_session_id() {
     );
 }
 
-// =============================================================================
-// Issue #13: expired JWT must return 401 from /auth/check
-// =============================================================================
-
 #[tokio::test]
 #[ignore]
 async fn auth_check_expired_jwt_cookie_returns_401() {
@@ -355,10 +338,6 @@ async fn auth_check_valid_jwt_cookie_returns_200() {
     assert_eq!(resp.status(), 200, "valid JWT cookie should return 200");
 }
 
-// =============================================================================
-// Issue #5: /auth/refresh 401 must include cookie-clearing Set-Cookie headers
-// =============================================================================
-
 #[tokio::test]
 #[ignore]
 async fn refresh_expired_token_returns_401_with_clear_cookies() {
@@ -405,7 +384,6 @@ async fn refresh_expired_token_returns_401_with_clear_cookies() {
 #[ignore]
 async fn refresh_unknown_token_returns_401_with_clear_cookies() {
     let client = Client::new();
-    // Valid signature but JTI not in NATS KV → "invalid_refresh_token"
     let unknown_refresh = mint_refresh_token("bob@example.com", false);
 
     let resp = client
@@ -462,17 +440,6 @@ async fn refresh_missing_token_returns_200_no_session() {
     assert_eq!(body["status"], "no_session");
 }
 
-// =============================================================================
-// OIDC verification path (ws-cc-platform#6) — against the pilotable test IdPs.
-//
-// Provider A (:9100, claim `email`) carries the happy path and the kid-miss
-// rotation. Provider B (:9101, Entra-shaped claim `preferred_username`) proves
-// multi-provider routing and isolates the cooldown counter assertions: tests
-// run in parallel, so every test that does NOT want to depend on a JWKS
-// refresh mints with `e2e-key-0`, published at startup and therefore always
-// in svc-auth's cache. The e2e stack runs JWKS_REFRESH_COOLDOWN_SECONDS=2.
-// =============================================================================
-
 fn idp_a_url() -> String {
     std::env::var("OIDC_IDP_A_URL").unwrap_or_else(|_| "http://localhost:9100".to_string())
 }
@@ -493,8 +460,6 @@ async fn idp_mint(idp_url: &str, body: serde_json::Value) -> String {
     minted["id_token"].as_str().unwrap().to_string()
 }
 
-/// Default rotate gesture: publish the next pool key and make it active.
-/// Returns the new active kid.
 async fn idp_rotate(idp_url: &str) -> String {
     let resp = Client::new()
         .post(format!("{idp_url}/admin/rotate"))
@@ -528,7 +493,6 @@ async fn post_auth_token(client: &Client, id_token: &str) -> reqwest::Response {
         .unwrap()
 }
 
-/// Value of the first non-clearing `Set-Cookie` named `name`.
 fn cookie_value(resp: &reqwest::Response, name: &str) -> Option<String> {
     let prefix = format!("{name}=");
     resp.headers()
@@ -565,7 +529,6 @@ async fn oidc_valid_id_token_yields_cookie_session_end_to_end() {
     let access = cookie_value(&resp, "access_token").expect("access_token cookie must be set");
     let refresh = cookie_value(&resp, "refresh_token").expect("refresh_token cookie must be set");
 
-    // The issued access cookie authenticates /auth/check.
     let check = client
         .get(format!("{}/auth/check", base_url()))
         .header("cookie", format!("access_token={access}"))
@@ -578,7 +541,6 @@ async fn oidc_valid_id_token_yields_cookie_session_end_to_end() {
         "OIDC-issued access token must pass /auth/check"
     );
 
-    // The issued refresh cookie rotates.
     let rotated = client
         .post(format!("{}/auth/refresh", base_url()))
         .header("cookie", format!("refresh_token={refresh}"))
@@ -606,8 +568,6 @@ async fn oidc_kid_miss_triggers_jwks_refresh_end_to_end() {
     let idp_a = idp_a_url();
 
     let before = idp_jwks_fetches(&idp_a).await;
-    // The IdP rotates: a new key enters the JWKS and signs from now on.
-    // svc-auth's cache predates it, so verification requires a re-fetch.
     let new_kid = idp_rotate(&idp_a).await;
     let id_token = idp_mint(
         &idp_a,
@@ -633,9 +593,6 @@ async fn oidc_kid_miss_triggers_jwks_refresh_end_to_end() {
 async fn oidc_unknown_key_rejected_and_jwks_refetch_cooldown_gated() {
     let client = Client::new();
     let idp_b = idp_b_url();
-    // Wait 2.5x the stack's configured cooldown (up.sh / ci.yml / run.sh set
-    // 1s for e2e): derived from the same env var so nobody can change one
-    // side and silently open a flakiness window.
     let cooldown_secs: u64 = std::env::var("JWKS_REFRESH_COOLDOWN_SECONDS")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -652,11 +609,9 @@ async fn oidc_unknown_key_rejected_and_jwks_refetch_cooldown_gated() {
         })
     }
 
-    // Clear any recent refresh window (svc-auth startup also counts as one).
     tokio::time::sleep(cooldown).await;
     let before = idp_jwks_fetches(&idp_b).await;
 
-    // 1. Unknown kid: svc-auth re-fetches the JWKS, still unknown → rejected.
     let t1 = idp_mint(&idp_b, unknown_key_token("e2e-key-5")).await;
     assert_eq!(post_auth_token(&client, &t1).await.status(), 401);
     let after_first = idp_jwks_fetches(&idp_b).await;
@@ -666,7 +621,6 @@ async fn oidc_unknown_key_rejected_and_jwks_refetch_cooldown_gated() {
         "the first unknown kid must trigger exactly one JWKS re-fetch"
     );
 
-    // 2. Another unknown kid inside the cooldown: rejected WITHOUT re-fetching.
     let t2 = idp_mint(&idp_b, unknown_key_token("e2e-key-4")).await;
     assert_eq!(post_auth_token(&client, &t2).await.status(), 401);
     assert_eq!(
@@ -675,8 +629,6 @@ async fn oidc_unknown_key_rejected_and_jwks_refetch_cooldown_gated() {
         "within the cooldown the JWKS must not be re-fetched"
     );
 
-    // 3. Once the cooldown expires the re-fetch happens again — and the token
-    //    is still rejected (the key is genuinely not in the JWKS).
     tokio::time::sleep(cooldown).await;
     let t3 = idp_mint(&idp_b, unknown_key_token("e2e-key-5")).await;
     assert_eq!(post_auth_token(&client, &t3).await.status(), 401);
@@ -692,7 +644,6 @@ async fn oidc_unknown_key_rejected_and_jwks_refetch_cooldown_gated() {
 async fn oidc_multi_provider_routing_by_issuer() {
     let client = Client::new();
 
-    // Provider B, with its Entra-shaped email claim, verifies end-to-end.
     let b_token = idp_mint(
         &idp_b_url(),
         serde_json::json!({
@@ -709,7 +660,6 @@ async fn oidc_multi_provider_routing_by_issuer() {
         "provider B's id_token must be routed by iss and verified"
     );
 
-    // A correctly-signed token whose iss matches no configured provider.
     let alien = idp_mint(
         &idp_a_url(),
         serde_json::json!({
@@ -744,7 +694,6 @@ async fn oidc_wrong_audience_rejected() {
 #[ignore]
 async fn oidc_expired_id_token_rejected() {
     let client = Client::new();
-    // -120s clears jsonwebtoken's default 60s leeway.
     let id_token = idp_mint(
         &idp_a_url(),
         serde_json::json!({"email": "hugo@example.com", "kid": "e2e-key-0", "expires_in_secs": -120}),

@@ -96,8 +96,7 @@ jobs:
   # audit checks your Cargo.lock against RustSec advisories; deny also checks
   # licenses, banned crates, and allowed sources — complementary, not redundant.
   # One taiki-e install step covers all three tools, and the invocations stay
-  # plain `cargo …` commands we control — same layout as be-botresources.ai
-  # (the reference implementation).
+  # plain `cargo …` commands we control.
   # ---------------------------------------------------------------------------
   supply-chain:
     name: supply chain (audit + deny + machete)

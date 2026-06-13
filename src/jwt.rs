@@ -1,15 +1,10 @@
-//! Self-contained JWT service for svc-auth.
-//!
-//! Signs and verifies internal JWTs. Zero workspace dependencies.
-//! Access tokens carry `sub: email`. Refresh tokens carry `sub: email`
-//! and `jti: token_id`.
-
 use chrono::Utc;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// JWT claims for access tokens.
+const CLOCK_SKEW_LEEWAY_SECS: u64 = 5;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccessClaims {
     pub sub: String,
@@ -18,7 +13,6 @@ pub struct AccessClaims {
     pub exp: i64,
 }
 
-/// JWT claims for refresh tokens.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RefreshClaims {
     pub sub: String,
@@ -55,7 +49,6 @@ impl JwtService {
         self.refresh_ttl_secs
     }
 
-    /// Sign an access token with `sub: email`.
     pub fn sign_access_token(&self, email: &str) -> Result<String, String> {
         let now = Utc::now().timestamp();
         let claims = AccessClaims {
@@ -68,14 +61,11 @@ impl JwtService {
             .map_err(|e| format!("failed to sign access token: {e}"))
     }
 
-    /// Verify an access token. Returns claims if valid.
     pub fn verify_access_token(&self, token: &str) -> Result<AccessClaims, JwtError> {
         let mut validation = Validation::default();
         validation.set_issuer(&[&self.issuer]);
         validation.set_required_spec_claims(&["sub", "iss", "iat", "exp"]);
-        // Default leeway is 60s which silently extends token lifetime.
-        // Use 5s to tolerate minor clock skew only.
-        validation.leeway = 5;
+        validation.leeway = CLOCK_SKEW_LEEWAY_SECS;
 
         let token_data =
             decode::<AccessClaims>(token, &self.decoding_key, &validation).map_err(|e| match e
@@ -88,8 +78,6 @@ impl JwtService {
         Ok(token_data.claims)
     }
 
-    /// Sign a refresh token with `sub: email` and `jti: token_id`.
-    /// Returns `(jwt_string, token_id, token_hash)`.
     pub fn sign_refresh_token(&self, email: &str) -> Result<(String, Uuid, Vec<u8>), String> {
         let token_id = Uuid::now_v7();
         let now = Utc::now().timestamp();
@@ -109,12 +97,11 @@ impl JwtService {
         Ok((jwt, token_id, hash))
     }
 
-    /// Verify a refresh token. Returns claims if valid.
     pub fn verify_refresh_token(&self, token: &str) -> Result<RefreshClaims, JwtError> {
         let mut validation = Validation::default();
         validation.set_issuer(&[&self.issuer]);
         validation.set_required_spec_claims(&["sub", "jti", "iss", "iat", "exp"]);
-        validation.leeway = 5;
+        validation.leeway = CLOCK_SKEW_LEEWAY_SECS;
 
         let token_data =
             decode::<RefreshClaims>(token, &self.decoding_key, &validation).map_err(|e| match e

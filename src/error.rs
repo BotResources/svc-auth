@@ -1,9 +1,3 @@
-//! Two-layer error types for svc-auth REST endpoints.
-//!
-//! Application errors (Validation, Unauthorized, Internal) are converted
-//! to HTTP JSON responses. Internal error messages are never leaked to the
-//! client.
-
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
