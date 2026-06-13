@@ -1,25 +1,3 @@
-//! GET /auth/check -- auth subrequest endpoint.
-//!
-//! Called by nginx `auth_request` or k8s ingress middlewares on every proxied
-//! request. Validates credentials (JWT cookie or bearer token).
-//!
-//! Two behaviors, toggled by `AppState.auth_check_silent_refresh`:
-//!
-//! **true (default)** -- legacy nginx/OpenResty mode. On expired JWT, rotate
-//! tokens and return 200 + Set-Cookie. On invalid JWT, return 200 + clear
-//! cookies. Always 200; the middleware forwards the new cookies to the client.
-//!
-//! **false** -- k8s ingress mode (Traefik ForwardAuth, nginx-ingress
-//! `auth-url`, Envoy ExternalAuthz). On expired / invalid / corrupt JWT,
-//! return 401. No token rotation, no Set-Cookie. The client catches 401 and
-//! calls `/auth/refresh` explicitly (standard SPA pattern).
-//!
-//! Valid JWT, valid bearer, and no-credentials branches return 200 in both
-//! modes. Unknown bearer tokens return 401; KV errors return 502.
-//!
-//! svc-auth does NOT build Passports or resolve identity. It validates
-//! credentials and rejects unrecognized ones.
-
 use axum::extract::State;
 use axum::http::header::SET_COOKIE;
 use axum::http::{HeaderMap, StatusCode};
@@ -36,32 +14,24 @@ use crate::jwt::JwtError;
 pub async fn auth_check_handler(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let existing_session = extract_session_cookie(&headers, &state.cookie_config);
 
-    // 1. Check for JWT cookie (browser requests, including WS upgrade).
     if let Some(access_token) = extract_access_cookie(&headers, &state.cookie_config) {
         let mut response = handle_jwt_cookie(&state, &access_token, &headers).await;
         append_session_cookie_if_needed(&mut response, existing_session.as_deref(), &state);
         return response;
     }
 
-    // 2. Check for bearer token in Authorization header (SA — no session cookie).
     if let Some(auth_value) = headers.get("authorization").and_then(|v| v.to_str().ok()) {
         return handle_bearer(&state, auth_value).await;
     }
 
-    // 3. No credentials -- anonymous.
     let mut response = StatusCode::OK.into_response();
     append_session_cookie_if_needed(&mut response, existing_session.as_deref(), &state);
     response
 }
 
-/// Handle JWT cookie validation. Behavior on expired / invalid JWT depends
-/// on AppState.auth_check_silent_refresh.
 async fn handle_jwt_cookie(state: &AppState, token: &str, headers: &HeaderMap) -> Response {
     match state.jwt.verify_access_token(token) {
-        Ok(_claims) => {
-            // Valid JWT -- let through. No Set-Cookie needed.
-            StatusCode::OK.into_response()
-        }
+        Ok(_claims) => StatusCode::OK.into_response(),
         Err(JwtError::Expired) => {
             if state.auth_check_silent_refresh {
                 silent_refresh(state, headers).await
@@ -82,18 +52,15 @@ async fn handle_jwt_cookie(state: &AppState, token: &str, headers: &HeaderMap) -
     }
 }
 
-/// Attempt silent refresh using the refresh token cookie.
 async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
     let refresh_jwt = match extract_refresh_cookie(headers, &state.cookie_config) {
         Some(t) => t,
         None => {
-            // No refresh cookie -- clear access cookie, anonymous.
             tracing::debug!("auth_check: expired JWT, no refresh cookie");
             return clear_access_cookie_response(state);
         }
     };
 
-    // Verify refresh token JWT.
     let claims = match state.jwt.verify_refresh_token(&refresh_jwt) {
         Ok(c) => c,
         Err(JwtError::Expired) => {
@@ -106,13 +73,11 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
         }
     };
 
-    // Parse jti to look up in database.
     let jti = match uuid::Uuid::parse_str(&claims.jti) {
         Ok(id) => id,
         Err(_) => return clear_cookies_response(state),
     };
 
-    // Look up refresh token in NATS KV.
     let (token_row, revision) = match state.refresh_store.find_by_id(jti).await {
         Ok(Some(entry)) => entry,
         Ok(None) => {
@@ -125,7 +90,6 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
         }
     };
 
-    // Family revocation check (blocklist in NATS KV).
     if state
         .refresh_store
         .is_family_revoked(token_row.family_id)
@@ -135,7 +99,6 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
         return clear_cookies_response(state);
     }
 
-    // Reuse detection: if token was already used, revoke the entire family.
     if token_row.used_at.is_some() {
         tracing::warn!(
             family_id = %token_row.family_id,
@@ -145,7 +108,6 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
         return clear_cookies_response(state);
     }
 
-    // Rotate: sign new tokens.
     let email = &claims.sub;
     let new_access = match state.jwt.sign_access_token(email) {
         Ok(t) => t,
@@ -163,7 +125,6 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
         }
     };
 
-    // Store new refresh token.
     let new_token = crate::refresh_store::RefreshToken {
         id: new_token_id,
         email: email.clone(),
@@ -179,7 +140,6 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
         return clear_cookies_response(state);
     }
 
-    // Now mark old token as used (new row exists, FK satisfied).
     if let Err(e) = state
         .refresh_store
         .mark_used(jti, new_token_id, revision)
@@ -191,7 +151,6 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
 
     tracing::debug!(email = %email, "auth_check: silent refresh successful");
 
-    // Return 200 with new cookies.
     let access_cookie = build_access_cookie(&new_access, &state.cookie_config);
     let refresh_cookie = build_refresh_cookie(&new_refresh_jwt, &state.cookie_config);
 
@@ -208,10 +167,6 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
     response
 }
 
-/// Handle bearer token in Authorization header.
-///
-/// Valid token → 200, unknown token → 401, KV error → 502,
-/// no validator configured → 200 (anonymous fallback).
 async fn handle_bearer(state: &AppState, auth_value: &str) -> Response {
     let token = if auth_value.len() >= 7 && auth_value[..7].eq_ignore_ascii_case("bearer ") {
         &auth_value[7..]
@@ -240,7 +195,6 @@ async fn handle_bearer(state: &AppState, auth_value: &str) -> Response {
     }
 }
 
-/// Build a 200 response that clears both cookies.
 fn clear_cookies_response(state: &AppState) -> Response {
     let clear_access = build_clear_access_cookie(&state.cookie_config);
     let clear_refresh = build_clear_refresh_cookie(&state.cookie_config);
@@ -258,7 +212,6 @@ fn clear_cookies_response(state: &AppState) -> Response {
     response
 }
 
-/// Build a 200 response that clears only the access cookie.
 fn clear_access_cookie_response(state: &AppState) -> Response {
     let clear_access = build_clear_access_cookie(&state.cookie_config);
     let mut response = StatusCode::OK.into_response();
@@ -269,8 +222,6 @@ fn clear_access_cookie_response(state: &AppState) -> Response {
     response
 }
 
-/// Append a `__Host-session_id` Set-Cookie header if the request did not
-/// already carry one. Generates a new UUID v7 for the session.
 fn append_session_cookie_if_needed(
     response: &mut Response,
     existing: Option<&str>,

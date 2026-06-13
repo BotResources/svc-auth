@@ -1,12 +1,5 @@
-//! Configuration loading from environment variables.
-//!
-//! svc-auth has zero workspace dependencies. All configuration is self-contained.
-//!
-//! OIDC providers are auto-detected by scanning for OIDC_*_DISCOVERY_URL env vars.
-//! Each provider needs: OIDC_{NAME}_DISCOVERY_URL, OIDC_{NAME}_CLIENT_ID,
-//! and optionally OIDC_{NAME}_EMAIL_CLAIM (default: "email").
+const JWKS_REFRESH_COOLDOWN_FLOOR_SECS: u64 = 1;
 
-/// Application configuration loaded from environment variables.
 pub struct AppConfig {
     pub nats_url: String,
     pub jwt_secret: String,
@@ -18,9 +11,6 @@ pub struct AppConfig {
     pub secure_cookies: bool,
     pub auth_check_silent_refresh: bool,
     pub oidc_providers: Vec<OidcProviderConfig>,
-    /// Minimum delay between two JWKS re-fetches for the same provider
-    /// (unknown-`kid` storm protection). Default 60s; e2e suites lower it
-    /// to exercise the cooldown without stalling.
     pub jwks_refresh_cooldown_secs: u64,
 }
 
@@ -48,10 +38,6 @@ impl std::fmt::Display for Environment {
 }
 
 impl Environment {
-    /// Parse the `ENVIRONMENT` value. Fails closed: an unrecognised value is
-    /// rejected rather than silently treated as `Local`. For an auth service,
-    /// defaulting an unknown environment to the most-permissive mode is the
-    /// wrong direction — a typo'd or new environment must fail loud at boot.
     fn parse(value: &str) -> Result<Self, String> {
         match value {
             "local" => Ok(Self::Local),
@@ -76,8 +62,6 @@ pub struct OidcProviderConfig {
 }
 
 impl AppConfig {
-    /// Load configuration from environment variables. Fails fast on missing
-    /// required variables.
     pub fn from_env() -> Result<Self, String> {
         let nats_url = required_env("NATS_URL")?;
         let jwt_secret = required_env("JWT_SECRET")?;
@@ -95,14 +79,9 @@ impl AppConfig {
 
         let secure_cookies = parse_bool_env("SECURE_COOKIES", true);
 
-        // Floor at 1s: 0 would disable the re-fetch storm protection entirely
-        // (every unknown kid would hit the IdP's JWKS endpoint).
-        let jwks_refresh_cooldown_secs = parse_u64_env("JWKS_REFRESH_COOLDOWN_SECONDS", 60).max(1);
+        let jwks_refresh_cooldown_secs = parse_u64_env("JWKS_REFRESH_COOLDOWN_SECONDS", 60)
+            .max(JWKS_REFRESH_COOLDOWN_FLOOR_SECS);
 
-        // Default true = preserves legacy nginx/OpenResty behavior. Set to
-        // false behind k8s ingress middlewares (Traefik ForwardAuth,
-        // nginx-ingress auth-url, Envoy ExternalAuthz) that cannot forward
-        // Set-Cookie from auth responses. See issue #1.
         let auth_check_silent_refresh = parse_bool_env("AUTH_CHECK_SILENT_REFRESH", true);
 
         let oidc_providers = discover_oidc_providers(&environment)?;
@@ -123,7 +102,6 @@ impl AppConfig {
     }
 }
 
-/// Auto-detect OIDC providers by scanning for OIDC_*_DISCOVERY_URL env vars.
 fn discover_oidc_providers(environment: &Environment) -> Result<Vec<OidcProviderConfig>, String> {
     let suffix = "_DISCOVERY_URL";
     let prefix = "OIDC_";
@@ -138,7 +116,6 @@ fn discover_oidc_providers(environment: &Environment) -> Result<Vec<OidcProvider
             continue;
         }
 
-        // Extract provider name: OIDC_ENTRA_DISCOVERY_URL -> ENTRA
         let name = &key[prefix.len()..key.len() - suffix.len()];
         if name.is_empty() {
             continue;
@@ -200,7 +177,6 @@ fn parse_bool_env(name: &str, default: bool) -> bool {
     parse_bool_value(std::env::var(name).ok().as_deref(), default)
 }
 
-/// Parse a bool from an optional string. Pure, side-effect-free (testable).
 fn parse_bool_value(value: Option<&str>, default: bool) -> bool {
     value.map(|v| v == "true" || v == "1").unwrap_or(default)
 }
@@ -241,8 +217,6 @@ mod tests {
 
     #[test]
     fn parse_bool_rejects_empty_string() {
-        // Empty string is present-but-empty; not "true" or "1" → falls through
-        // to the map() comparison returning false (which the current rule does).
         assert!(!parse_bool_value(Some(""), true));
     }
 
@@ -262,7 +236,6 @@ mod tests {
 
     #[test]
     fn environment_rejects_unknown_value() {
-        // Fail closed — must NOT silently fall back to Local.
         assert!(Environment::parse("sandbox").is_err());
         assert!(Environment::parse("Prod").is_err());
     }

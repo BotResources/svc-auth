@@ -1,9 +1,3 @@
-//! Multi-provider OIDC id_token verification with automatic JWKS refresh.
-//!
-//! Auto-discovers providers from OIDC_*_DISCOVERY_URL env vars at startup.
-//! Routes incoming id_tokens to the correct provider by matching the `iss` claim.
-//! JWKS keys are cached per-provider and refreshed on cache miss (unknown kid).
-
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -12,24 +6,20 @@ use tokio::sync::RwLock;
 
 use crate::config::OidcProviderConfig;
 
-/// Claims extracted from a verified OIDC id_token.
 pub struct OidcClaims {
     pub email: String,
 }
 
-/// Multi-provider OIDC validator. Routes id_tokens by issuer.
 pub struct OidcValidator {
     providers: Vec<OidcProvider>,
 }
 
-/// OIDC discovery document (only the fields we need).
 #[derive(serde::Deserialize)]
 struct DiscoveryDocument {
     issuer: String,
     jwks_uri: String,
 }
 
-/// A single configured OIDC provider with its own JWKS cache.
 struct OidcProvider {
     name: String,
     issuer: String,
@@ -43,10 +33,6 @@ struct OidcProvider {
 }
 
 impl OidcValidator {
-    /// Initialize all OIDC providers by fetching their discovery documents and JWKS.
-    ///
-    /// `refresh_cooldown` bounds how often a provider's JWKS is re-fetched on
-    /// unknown-`kid` misses (re-fetch storms from invalid tokens).
     pub async fn discover(
         configs: &[OidcProviderConfig],
         refresh_cooldown: Duration,
@@ -105,19 +91,14 @@ impl OidcValidator {
         Ok(Self { providers })
     }
 
-    /// Create an empty validator (no providers). Only reachable in local
-    /// environments (config rejects the absence of providers elsewhere);
-    /// every id_token verification against it fails.
     pub fn empty() -> Self {
         Self {
             providers: Vec::new(),
         }
     }
 
-    /// Verify an id_token against the matching provider (by issuer).
     pub async fn verify_id_token(&self, id_token: &str) -> Result<OidcClaims, String> {
-        // Peek at the unverified issuer to route to the correct provider.
-        let payload = decode_jwt_payload(id_token)?;
+        let payload = decode_jwt_payload_unverified(id_token)?;
         let issuer = payload
             .get("iss")
             .and_then(|v| v.as_str())
@@ -130,17 +111,14 @@ impl OidcValidator {
             .find(|p| p.issuer == issuer)
             .ok_or_else(|| format!("no OIDC provider configured for issuer: {issuer}"))?;
 
-        // Decode header to get kid.
         let header = jsonwebtoken::decode_header(id_token)
             .map_err(|e| format!("invalid token header: {e}"))?;
 
-        // Resolve the signing key: by kid if present, single-key fallback otherwise.
         let jwk = match &header.kid {
             Some(kid) => provider.resolve_key(kid).await?,
             None => provider.resolve_single_key().await?,
         };
 
-        // Use algorithm from the JWK; fall back to JWT header.
         let alg = jwk
             .common
             .key_algorithm
@@ -166,9 +144,7 @@ impl OidcValidator {
 }
 
 impl OidcProvider {
-    /// Look up a JWK by kid. On cache miss, re-fetches the JWKS endpoint.
     async fn resolve_key(&self, kid: &str) -> Result<jsonwebtoken::jwk::Jwk, String> {
-        // Fast path: key already cached.
         {
             let keys = self.jwks.read().await;
             if let Some(jwk) = find_key(&keys, kid) {
@@ -189,7 +165,6 @@ impl OidcProvider {
         })
     }
 
-    /// Fallback when the JWT has no kid: use the only key if the JWKS has exactly one.
     async fn resolve_single_key(&self) -> Result<jsonwebtoken::jwk::Jwk, String> {
         let keys = self.jwks.read().await;
         match keys.keys.len() {
@@ -255,9 +230,9 @@ fn key_algorithm_to_jwt(ka: jsonwebtoken::jwk::KeyAlgorithm) -> Option<jsonwebto
     }
 }
 
-/// Decode the JWT payload (second segment) into a generic JSON map.
-/// Does NOT verify the signature.
-fn decode_jwt_payload(token: &str) -> Result<HashMap<String, serde_json::Value>, String> {
+fn decode_jwt_payload_unverified(
+    token: &str,
+) -> Result<HashMap<String, serde_json::Value>, String> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
         return Err("invalid token format".to_string());
@@ -271,13 +246,10 @@ fn decode_jwt_payload(token: &str) -> Result<HashMap<String, serde_json::Value>,
     serde_json::from_slice(&bytes).map_err(|_| "invalid token payload".to_string())
 }
 
-/// Extract email from the decoded JWT payload using the configured claim name.
-/// Falls back to "email" if the configured claim is missing.
 fn extract_email_from_payload(
     payload: &HashMap<String, serde_json::Value>,
     email_claim: &str,
 ) -> Result<String, String> {
-    // Try the configured claim first, fall back to "email".
     let email = payload
         .get(email_claim)
         .and_then(|v| v.as_str())

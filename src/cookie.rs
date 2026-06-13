@@ -1,18 +1,10 @@
-//! Cookie helpers for access and refresh tokens.
-//!
-//! Both cookies share the same security attributes (HttpOnly, SameSite=Strict,
-//! Path=/) but differ in name and Max-Age. In production mode, cookies use the
-//! `__Host-` prefix and `Secure` flag.
-
 use axum::http::HeaderMap;
 use axum::http::header::COOKIE;
 
 #[derive(Clone, Debug)]
 pub struct CookieConfig {
     pub secure: bool,
-    /// Max-Age for the refresh token cookie (seconds).
     pub refresh_max_age: u64,
-    /// Max-Age for the access token cookie (seconds).
     pub access_max_age: u64,
 }
 
@@ -46,8 +38,6 @@ impl CookieConfig {
     }
 }
 
-// -- Access token cookie --
-
 pub fn build_access_cookie(token: &str, config: &CookieConfig) -> String {
     build_cookie(
         config.access_cookie_name(),
@@ -64,8 +54,6 @@ pub fn build_clear_access_cookie(config: &CookieConfig) -> String {
 pub fn extract_access_cookie(headers: &HeaderMap, config: &CookieConfig) -> Option<String> {
     extract_cookie(headers, config.access_cookie_name())
 }
-
-// -- Refresh token cookie --
 
 pub fn build_refresh_cookie(token: &str, config: &CookieConfig) -> String {
     build_cookie(
@@ -84,8 +72,6 @@ pub fn extract_refresh_cookie(headers: &HeaderMap, config: &CookieConfig) -> Opt
     extract_cookie(headers, config.refresh_cookie_name())
 }
 
-// -- Session ID cookie --
-
 pub fn build_session_cookie(session_id: &str, config: &CookieConfig) -> String {
     let name = config.session_cookie_name();
     if config.secure {
@@ -99,8 +85,6 @@ pub fn extract_session_cookie(headers: &HeaderMap, config: &CookieConfig) -> Opt
     let cookie_header = headers.get(COOKIE)?.to_str().ok()?;
     br_core_auth::extract_session_id(cookie_header, config.secure).map(|s| s.to_string())
 }
-
-// -- Internal helpers --
 
 fn build_cookie(name: &str, value: &str, max_age: u64, secure: bool) -> String {
     if secure {

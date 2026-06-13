@@ -1,12 +1,3 @@
-//! POST /auth/token -- OIDC id_token exchange.
-//!
-//! Accepts an id_token from the frontend's PKCE flow, validates it against
-//! the matching OIDC provider, and returns an internal JWT as HttpOnly cookies.
-//! The JWT sub claim is the verified email address.
-//!
-//! svc-auth signs a JWT for ANY verified email. It does not check whether
-//! the user exists, is disabled, or has permissions.
-
 use axum::extract::State;
 use axum::http::header::SET_COOKIE;
 use axum::http::{HeaderMap, StatusCode};
@@ -54,7 +45,6 @@ pub async fn token_handler(
 }
 
 async fn handle_token(state: &AppState, body: &TokenRequest) -> Result<Response, AppError> {
-    // Validate grant_type.
     let grant_type = body
         .grant_type
         .as_deref()
@@ -66,15 +56,12 @@ async fn handle_token(state: &AppState, body: &TokenRequest) -> Result<Response,
         ));
     }
 
-    // Validate id_token presence.
     let id_token = body
         .id_token
         .as_deref()
         .filter(|t| !t.is_empty())
         .ok_or_else(|| AppError::Validation("id_token is required".into()))?;
 
-    // Verify the OIDC id_token and extract email. There is no bypass: a
-    // token that does not verify against a configured provider is rejected.
     let claims = state.oidc.verify_id_token(id_token).await.map_err(|msg| {
         tracing::warn!(error = %msg, "OIDC id_token verification failed");
         AppError::Unauthorized(msg)
@@ -85,13 +72,11 @@ async fn handle_token(state: &AppState, body: &TokenRequest) -> Result<Response,
         return Err(AppError::Validation("no_email_in_token".into()));
     }
 
-    // Sign internal JWT with sub: email.
     let access_token = state
         .jwt
         .sign_access_token(email)
         .map_err(AppError::Internal)?;
 
-    // Create refresh token.
     let (refresh_jwt, token_id, token_hash) = state
         .jwt
         .sign_refresh_token(email)
@@ -119,11 +104,9 @@ async fn handle_token(state: &AppState, body: &TokenRequest) -> Result<Response,
 
     let access_ttl = state.jwt.access_ttl_secs();
 
-    // Build cookies.
     let access_cookie = build_access_cookie(&access_token, &state.cookie_config);
     let refresh_cookie = build_refresh_cookie(&refresh_jwt, &state.cookie_config);
 
-    // Response body -- access token is NOT included, only metadata.
     let resp_body = serde_json::json!({
         "token_type": "Bearer",
         "expires_in": access_ttl,

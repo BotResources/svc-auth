@@ -1,16 +1,7 @@
-//! Refresh token store backed by NATS KV.
-//!
-//! Uses two KV buckets:
-//! - `auth_refresh_tokens` — stores refresh token data, TTL = refresh token lifetime
-//! - `auth_revoked_families` — blocklist of revoked families, TTL = refresh token lifetime
-//!
-//! svc-auth has zero database dependencies. NATS KV TTL auto-expires tokens.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// A refresh token stored in NATS KV.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RefreshToken {
     pub id: Uuid,
@@ -38,7 +29,6 @@ impl RefreshTokenStore {
         }
     }
 
-    /// Insert a new refresh token.
     pub async fn store(&self, token: &RefreshToken) -> Result<(), StoreError> {
         let value = serde_json::to_vec(token).map_err(|e| StoreError::Serialize(e.to_string()))?;
         self.tokens
@@ -48,8 +38,6 @@ impl RefreshTokenStore {
         Ok(())
     }
 
-    /// Find a refresh token by its UUID (the `jti` claim).
-    /// Returns the token and its KV revision (for CAS on update).
     pub async fn find_by_id(
         &self,
         token_id: Uuid,
@@ -65,8 +53,6 @@ impl RefreshTokenStore {
         }
     }
 
-    /// Mark a refresh token as used and record its replacement.
-    /// Uses CAS (compare-and-swap via revision) to prevent race conditions.
     pub async fn mark_used(
         &self,
         token_id: Uuid,
@@ -89,7 +75,6 @@ impl RefreshTokenStore {
         Ok(())
     }
 
-    /// Revoke a token family by adding it to the revoked families blocklist.
     pub async fn revoke_family(&self, family_id: Uuid) -> Result<(), StoreError> {
         let timestamp = Utc::now().to_rfc3339();
         self.revoked_families
@@ -99,7 +84,6 @@ impl RefreshTokenStore {
         Ok(())
     }
 
-    /// Check if a token family has been revoked.
     pub async fn is_family_revoked(&self, family_id: Uuid) -> bool {
         matches!(
             self.revoked_families.get(family_id.to_string()).await,
@@ -107,7 +91,6 @@ impl RefreshTokenStore {
         )
     }
 
-    /// Health check: verify both KV buckets are reachable.
     pub async fn is_healthy(&self) -> bool {
         self.tokens.status().await.is_ok() && self.revoked_families.status().await.is_ok()
     }

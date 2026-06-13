@@ -8,23 +8,17 @@ license = "MIT"
 repository = "https://github.com/BotResources/svc-auth"
 
 [dependencies]
-# Async runtime
 tokio = { version = "1", features = ["full"] }
 
-# Web framework
 axum = { version = "0.8" }
 tower-http = { version = "0.6", features = ["cors"] }
 
-# Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# Auth
 jsonwebtoken = "9"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
-
-# Messaging (NATS KV for refresh tokens + bearer validation)
 async-nats = "0.48"
 
 br-core-auth = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-auth", tag = "v0.8.0", version = "0.8.0" }
@@ -32,7 +26,6 @@ br-core-auth = { git = "https://github.com/BotResources/br-rust-common", package
 br-util-observability = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-observability", tag = "v0.8.0", version = "0.8.0" }
 br-util-axum-readiness = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-axum-readiness", tag = "v0.8.0", version = "0.8.0" }
 
-# Types & utilities
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
