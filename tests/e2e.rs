@@ -463,7 +463,7 @@ async fn refresh_missing_token_returns_200_no_session() {
 }
 
 // =============================================================================
-// OIDC verification path (ws-cc-platform#6) — against the pilotable test IdPs.
+// OIDC verification path — against the pilotable test IdPs.
 //
 // Provider A (:9100, claim `email`) carries the happy path and the kid-miss
 // rotation. Provider B (:9101, Entra-shaped claim `preferred_username`) proves

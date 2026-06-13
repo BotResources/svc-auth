@@ -1,5 +1,24 @@
 # svc-auth
 
+> [!IMPORTANT]
+> **This repository is maintained for BotResources and its authorized clients.**
+> It is published under MIT and made available read-only for visibility and
+> reuse. The MIT license governs your rights to use, modify, and fork the code;
+> the rest of this notice describes our operational stance, not a legal
+> restriction.
+>
+> **We do not accept external pull requests, issues, or support requests.**
+> Issues and Discussions are disabled. PRs from accounts that are not on the
+> internal contributor allowlist will be closed without review. Forks are
+> permitted by MIT and we do not (and cannot) prevent them; we simply do not
+> monitor, support, or accept contributions from forks outside the BR
+> commercial relationship.
+>
+> - Clients with a commercial relationship: contact your BR account manager.
+> - Security reports: see [SECURITY.md](SECURITY.md) (private email channel).
+> - This is not a community-supported project. No support is provided through
+>   GitHub.
+
 Portable, self-contained REST authentication gatekeeper. Zero infrastructure dependencies beyond NATS (no database).
 
 Proves identity ("the human behind this request controls this email") via multi-provider OIDC, signs internal JWTs, and validates bearer tokens. Does **not** manage users, permissions, or sessions -- that's the consuming project's responsibility.
@@ -86,4 +105,4 @@ Manual publish / dry-run:
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
