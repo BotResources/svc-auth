@@ -53,10 +53,10 @@ target/release/svc-auth &
 SVC_AUTH_PID=$!
 echo "$SVC_AUTH_PID" > "$REPO_ROOT/.e2e-svc-auth.pid"
 
-echo "==> Waiting for /health..."
+echo "==> Waiting for /readyz..."
 for _ in $(seq 1 30); do
-    if curl -sf http://localhost:8002/health > /dev/null 2>&1; then
-        echo "==> svc-auth is healthy (pid $SVC_AUTH_PID)."
+    if curl -sf http://localhost:8002/readyz > /dev/null 2>&1; then
+        echo "==> svc-auth is ready (pid $SVC_AUTH_PID)."
         exit 0
     fi
     sleep 0.5

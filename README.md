@@ -1,6 +1,6 @@
 # svc-auth
 
-Portable, self-contained REST authentication gatekeeper. Zero external dependencies beyond NATS.
+Portable, self-contained REST authentication gatekeeper. Zero infrastructure dependencies beyond NATS (no database).
 
 Proves identity ("the human behind this request controls this email") via multi-provider OIDC, signs internal JWTs, and validates bearer tokens. Does **not** manage users, permissions, or sessions -- that's the consuming project's responsibility.
 
@@ -12,7 +12,9 @@ Proves identity ("the human behind this request controls this email") via multi-
 | POST   | `/auth/refresh`  | Rotate refresh token, get new access token        |
 | GET    | `/auth/check`    | nginx `auth_request` -- validate JWT or bearer    |
 | POST   | `/auth/logout`   | Revoke refresh token family, clear cookies        |
-| GET    | `/health`        | Health check (NATS KV reachability)               |
+| GET    | `/livez`         | Liveness -- always 200                             |
+| GET    | `/readyz`        | Readiness -- 200 once NATS KV buckets are reachable |
+| GET    | `/metrics`       | Prometheus exposition (anonymized labels)         |
 
 ## Quick start
 
@@ -38,6 +40,10 @@ OIDC providers are auto-detected at startup by scanning for `OIDC_*_DISCOVERY_UR
 - **HttpOnly cookies** with `__Host-` prefix in production
 - **Silent refresh** on expired access tokens via `auth_check`
 - **Bearer token validation** via SHA-256 hash lookup in NATS KV
+- **Observability from `br-rust-common`** — structured JSON logging, the `/livez`
+  liveness route and the `/metrics` Prometheus endpoint via `br-util-observability`;
+  the `/readyz` readiness gate (flipped UP once the NATS KV buckets are reachable
+  at startup) via `br-util-axum-readiness`
 
 ## Kubernetes deployment
 

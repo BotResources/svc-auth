@@ -64,23 +64,46 @@ fn mint_refresh_token(email: &str, expired: bool) -> String {
     .unwrap()
 }
 
-// =============================================================================
-// Health
-// =============================================================================
-
 #[tokio::test]
 #[ignore]
-async fn health_returns_200_when_nats_is_reachable() {
+async fn livez_returns_200() {
     let client = Client::new();
     let resp = client
-        .get(format!("{}/health", base_url()))
+        .get(format!("{}/livez", base_url()))
         .send()
         .await
         .expect("failed to reach svc-auth");
 
     assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["status"], "ok");
+    assert_eq!(resp.text().await.unwrap(), "alive");
+}
+
+#[tokio::test]
+#[ignore]
+async fn readyz_returns_200_when_nats_is_reachable() {
+    let client = Client::new();
+    let resp = client
+        .get(format!("{}/readyz", base_url()))
+        .send()
+        .await
+        .expect("failed to reach svc-auth");
+
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await.unwrap(), "ready");
+}
+
+#[tokio::test]
+#[ignore]
+async fn metrics_exposes_prometheus_exposition() {
+    let client = Client::new();
+    let resp = client
+        .get(format!("{}/metrics", base_url()))
+        .send()
+        .await
+        .expect("failed to reach svc-auth");
+
+    assert_eq!(resp.status(), 200);
+    assert!(resp.text().await.unwrap().contains("process_"));
 }
 
 // =============================================================================

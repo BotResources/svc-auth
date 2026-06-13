@@ -4,6 +4,46 @@ All notable changes to `svc-auth` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.4.0
+
+### Changed
+
+- **Probe surface (BREAKING for deployments):** the single `GET /health`
+  endpoint is replaced by the platform's three-probe split, adopted from
+  `br-rust-common`:
+  - `GET /livez` — liveness, **always 200** (`br-util-observability`). Kubernetes
+    restarts the pod only when the process is dead, never on a transient NATS
+    outage. The Helm chart's `livenessProbe` switches from `tcpSocket` to an
+    `httpGet` on `/livez`.
+  - `GET /readyz` — readiness (`br-util-axum-readiness`). 200 once the NATS KV
+    buckets are confirmed reachable at startup, 503 otherwise; the pod is taken
+    out of rotation rather than restarted. The chart's `readinessProbe` path
+    moves from `/health` to `/readyz`.
+  - `GET /metrics` — anonymized Prometheus exposition (`br-util-observability`),
+    with an HTTP metrics layer labeling by method + matched-route template +
+    status (no PII, no raw path).
+
+  Any deployment that probed `/health` must move to `/livez` (liveness) and
+  `/readyz` (readiness).
+- **Structured JSON logging** now comes from `br-util-observability`'s
+  `init_logging("svc-auth")` (one JSON object per line, canonical `ts`/`level`/
+  `component`/`msg` keys), replacing the hand-rolled `tracing_subscriber::fmt`.
+  Level remains env-driven (`RUST_LOG`, default `info`); the local
+  `tracing-subscriber` dependency is dropped.
+
+### Added
+
+- Dependencies on `br-util-observability` and `br-util-axum-readiness`, both
+  pinned to the unified `br-rust-common` tag `v0.8.0`.
+
+### Migration
+
+- `br-core-auth` is re-pinned from the per-crate tag `br-core-auth-v0.6.0` to
+  the unified workspace tag `v0.8.0`; the bearer/session contract is unchanged.
+- Operators must update probe paths: liveness → `/livez`, readiness → `/readyz`.
+  The bundled Helm chart is already updated; external deploy manifests that
+  hardcode `/health` must follow.
+
 ## 0.3.1
 
 ### Changed

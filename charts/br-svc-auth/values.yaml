@@ -83,17 +83,15 @@ resources:
     cpu: 500m
     memory: 256Mi
 
-# Probes hit the /health endpoint which returns 503 if NATS KV buckets
-# are unreachable. Liveness uses a TCP port check so transient NATS outages
-# do not restart the pod.
 probes:
   readiness:
-    path: /health
+    path: /readyz
     initialDelaySeconds: 3
     periodSeconds: 10
     timeoutSeconds: 2
     failureThreshold: 3
   liveness:
+    path: /livez
     initialDelaySeconds: 10
     periodSeconds: 30
     timeoutSeconds: 2
