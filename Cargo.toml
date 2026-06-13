@@ -25,12 +25,10 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 # Messaging (NATS KV for refresh tokens + bearer validation)
 async-nats = "0.48"
 
-# Shared cross-service contracts (bearer-token KV key, session cookie name)
-br-core-auth = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-auth", tag = "v0.8.0" }
+br-core-auth = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-auth", tag = "v0.8.0", version = "0.8.0" }
 
-# Shared observability (structured JSON logging, /livez, /metrics) + readiness gate (/readyz)
-br-util-observability = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-observability", tag = "v0.8.0" }
-br-util-axum-readiness = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-axum-readiness", tag = "v0.8.0" }
+br-util-observability = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-observability", tag = "v0.8.0", version = "0.8.0" }
+br-util-axum-readiness = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-axum-readiness", tag = "v0.8.0", version = "0.8.0" }
 
 # Types & utilities
 uuid = { version = "1", features = ["v7", "serde"] }
