@@ -1,17 +1,14 @@
-//! svc-auth composition root.
-//!
-//! Portable, self-contained authentication gatekeeper. REST only.
-//! Zero workspace dependencies. Multi-provider OIDC with kid-based JWKS refresh.
-//! Uses NATS KV for refresh token storage (no PostgreSQL).
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Router;
 use axum::http::{HeaderName, Method};
 use axum::routing::{get, post};
+use br_util_axum_readiness::{ReadinessHandle, readiness_route};
+use br_util_observability::{
+    http_metrics_layer, init_logging, init_metrics, liveness_route, metrics_route,
+};
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use tracing_subscriber::EnvFilter;
 
 use svc_auth::AppState;
 use svc_auth::bearer_validator::BearerValidator;
@@ -30,9 +27,17 @@ async fn main() {
 
     dotenvy::dotenv().ok();
 
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .init();
+    init_logging("svc-auth");
+
+    let metrics = match init_metrics("svc-auth") {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to install metrics recorder");
+            std::process::exit(1);
+        }
+    };
+
+    let readiness = ReadinessHandle::not_ready("starting up");
 
     let config = match AppConfig::from_env() {
         Ok(c) => c,
@@ -42,7 +47,6 @@ async fn main() {
         }
     };
 
-    // -- NATS --
     let nats_client = match async_nats::connect(&config.nats_url).await {
         Ok(c) => {
             tracing::info!("NATS connected");
@@ -56,7 +60,6 @@ async fn main() {
 
     let jetstream = async_nats::jetstream::new(nats_client);
 
-    // -- NATS KV: bearer_tokens (read-only, created if absent) --
     let bearer_validator = match jetstream
         .create_key_value(async_nats::jetstream::kv::Config {
             bucket: "bearer_tokens".to_string(),
@@ -74,7 +77,6 @@ async fn main() {
         }
     };
 
-    // -- NATS KV: refresh token storage --
     let refresh_ttl = std::time::Duration::from_secs(config.refresh_token_ttl);
 
     let refresh_tokens_kv = jetstream
@@ -103,7 +105,6 @@ async fn main() {
 
     tracing::info!("NATS KV buckets initialized (refresh_tokens, revoked_families)");
 
-    // -- JWT service --
     let jwt = Arc::new(JwtService::new(
         &config.jwt_secret,
         &config.jwt_issuer,
@@ -111,7 +112,6 @@ async fn main() {
         config.refresh_token_ttl,
     ));
 
-    // -- OIDC providers (auto-discovered from env vars) --
     let oidc = if config.oidc_providers.is_empty() {
         tracing::warn!("no OIDC providers configured — /auth/token will reject every id_token");
         Arc::new(OidcValidator::empty())
@@ -126,14 +126,12 @@ async fn main() {
         }
     };
 
-    // -- Cookie config --
     let cookie_config = CookieConfig::new(
         config.secure_cookies,
         config.refresh_token_ttl,
         config.access_token_ttl,
     );
 
-    // -- Refresh token store (NATS KV) --
     let refresh_store = Arc::new(RefreshTokenStore::new(
         refresh_tokens_kv,
         revoked_families_kv,
@@ -155,7 +153,17 @@ async fn main() {
         );
     }
 
-    // -- CORS --
+    let refresh_store_ok = state.refresh_store.is_healthy().await;
+    let bearer_ok = match state.bearer_validator {
+        Some(ref validator) => validator.is_healthy().await,
+        None => true,
+    };
+    if refresh_store_ok && bearer_ok {
+        readiness.set_ready();
+    } else {
+        readiness.set_not_ready("NATS KV buckets unreachable");
+    }
+
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list([
             "http://localhost:5173".parse().unwrap(),
@@ -168,15 +176,17 @@ async fn main() {
         ])
         .allow_credentials(true);
 
-    // -- Router --
     let app = Router::new()
         .route("/auth/check", get(svc_auth::auth_check::auth_check_handler))
         .route("/auth/token", post(svc_auth::token::token_handler))
         .route("/auth/refresh", post(svc_auth::refresh::refresh_handler))
         .route("/auth/logout", post(svc_auth::logout::logout_handler))
-        .route("/health", get(svc_auth::health::health_handler))
-        .layer(cors)
-        .with_state(state);
+        .with_state(state)
+        .route("/livez", liveness_route())
+        .route("/readyz", readiness_route(readiness))
+        .route("/metrics", metrics_route(metrics))
+        .layer(http_metrics_layer())
+        .layer(cors);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     tracing::info!("svc-auth listening on {addr}");

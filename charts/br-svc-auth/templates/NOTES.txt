@@ -7,7 +7,9 @@ Endpoints (in-cluster):
   POST   http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/auth/refresh
   GET    http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/auth/check
   POST   http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/auth/logout
-  GET    http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/health
+  GET    http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/livez
+  GET    http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/readyz
+  GET    http://{{ include "br-svc-auth.fullname" . }}:{{ .Values.port }}/metrics
 
 {{- if not .Values.oidcProviders }}
 
