@@ -36,6 +36,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Dependencies on `br-util-observability` and `br-util-axum-readiness`, both
   pinned to the unified `br-rust-common` tag `v0.8.0`.
 
+### Security
+
+- The `v0.8.0` dependency refresh clears both previously-ignored advisories:
+  `rsa` (RUSTSEC-2023-0071) is no longer in the tree, and `rustls-webpki`
+  resolves to a patched `0.103`, out of RUSTSEC-2026-0049's range. The
+  `deny.toml` ignore list is now empty — a vulnerable reappearance fails CI
+  instead of being silently allowed.
+
 ### Migration
 
 - `br-core-auth` is re-pinned from the per-crate tag `br-core-auth-v0.6.0` to
