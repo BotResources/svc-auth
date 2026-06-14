@@ -60,50 +60,33 @@ async fn main() {
 
     let jetstream = async_nats::jetstream::new(nats_client);
 
-    let bearer_validator = match jetstream
-        .create_key_value(async_nats::jetstream::kv::Config {
-            bucket: "bearer_tokens".to_string(),
-            ..Default::default()
-        })
-        .await
-    {
-        Ok(kv) => {
-            tracing::info!("NATS KV bearer_tokens connected");
-            Some(Arc::new(BearerValidator::new(kv)))
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "NATS KV bearer_tokens unavailable; bearer validation will fail-open to anonymous");
-            None
-        }
-    };
-
-    let refresh_ttl = std::time::Duration::from_secs(config.refresh_token_ttl);
-
-    let refresh_tokens_kv = jetstream
-        .create_key_value(async_nats::jetstream::kv::Config {
-            bucket: "auth_refresh_tokens".to_string(),
-            max_age: refresh_ttl,
-            ..Default::default()
-        })
+    let bearer_tokens_kv = jetstream
+        .get_key_value("bearer_tokens")
         .await
         .unwrap_or_else(|e| {
-            tracing::error!(error = %e, "failed to create auth_refresh_tokens KV bucket");
+            tracing::error!(error = %e, "NATS KV bearer_tokens absent (declared bucket missing)");
+            std::process::exit(1);
+        });
+    let bearer_validator = Arc::new(BearerValidator::new(bearer_tokens_kv));
+    tracing::info!("NATS KV bearer_tokens bound");
+
+    let refresh_tokens_kv = jetstream
+        .get_key_value("auth_refresh_tokens")
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!(error = %e, "NATS KV auth_refresh_tokens absent (declared bucket missing)");
             std::process::exit(1);
         });
 
     let revoked_families_kv = jetstream
-        .create_key_value(async_nats::jetstream::kv::Config {
-            bucket: "auth_revoked_families".to_string(),
-            max_age: refresh_ttl,
-            ..Default::default()
-        })
+        .get_key_value("auth_revoked_families")
         .await
         .unwrap_or_else(|e| {
-            tracing::error!(error = %e, "failed to create auth_revoked_families KV bucket");
+            tracing::error!(error = %e, "NATS KV auth_revoked_families absent (declared bucket missing)");
             std::process::exit(1);
         });
 
-    tracing::info!("NATS KV buckets initialized (refresh_tokens, revoked_families)");
+    tracing::info!("NATS KV buckets bound (refresh_tokens, revoked_families)");
 
     let jwt = Arc::new(JwtService::new(
         &config.jwt_secret,
@@ -154,10 +137,7 @@ async fn main() {
     }
 
     let refresh_store_ok = state.refresh_store.is_healthy().await;
-    let bearer_ok = match state.bearer_validator {
-        Some(ref validator) => validator.is_healthy().await,
-        None => true,
-    };
+    let bearer_ok = state.bearer_validator.is_healthy().await;
     if refresh_store_ok && bearer_ok {
         readiness.set_ready();
     } else {

@@ -170,81 +170,28 @@ jobs:
           severity: warning
 
   # ---------------------------------------------------------------------------
-  # E2E: real NATS, real svc-auth, no mocks
+  # E2E: the self-hosted harness suite (tests/e2e.rs). Each test spawns its own
+  # real nats-server (br_test_harness::SpawnedNats), its own in-process OIDC
+  # IdPs, and the real svc-auth binary — no docker, no external services, no
+  # `--ignored`. The only runner dependency is `nats-server` on PATH.
   # ---------------------------------------------------------------------------
   e2e:
     name: e2e
     needs: check
     runs-on: ubuntu-latest
-    env:
-      NATS_URL: nats://localhost:4222
-      JWT_SECRET: e2e-test-secret-key-at-least-32-chars!
-      JWT_ISSUER: svc-auth
-      ENVIRONMENT: local
-      PORT: "8002"
-      SECURE_COOKIES: "false"
-      AUTH_CHECK_SILENT_REFRESH: "false"
-      RUST_LOG: info
-      # Two real OIDC providers backed by the pilotable test IdPs from
-      # br-e2e-harness (started by docker-compose.e2e.yml). B uses an
-      # Entra-shaped email claim on purpose.
-      OIDC_E2EA_DISCOVERY_URL: http://localhost:9100
-      OIDC_E2EA_CLIENT_ID: e2e-client
-      OIDC_E2EB_DISCOVERY_URL: http://localhost:9101
-      OIDC_E2EB_CLIENT_ID: e2e-client-b
-      OIDC_E2EB_EMAIL_CLAIM: preferred_username
-      # Short cooldown so the suite can prove cooldown semantics without
-      # stalling (the cooldown test waits 2.5x this). Production default 60s.
-      JWKS_REFRESH_COOLDOWN_SECONDS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: start nats + oidc test idps
-        # Plain `docker run` (not docker-compose.e2e.yml): the ubuntu-latest
-        # runner image ships docker without the compose plugin. The compose
-        # file stays the local-dev path (scripts/e2e/up.sh); keep both in
-        # sync when touching the stack.
+      - name: install nats-server
         run: |
-          docker run -d --name nats -p 4222:4222 nats:2.10-alpine -js
-          docker run -d --name oidc-idp-a -p 9100:9100 \
-            -e ISSUER=http://localhost:9100 -e DEFAULT_CLIENT_ID=e2e-client \
-            ghcr.io/botresources/br-oidc-test-idp:0.1.0
-          docker run -d --name oidc-idp-b -p 9101:9101 \
-            -e ISSUER=http://localhost:9101 -e PORT=9101 -e DEFAULT_CLIENT_ID=e2e-client-b \
-            ghcr.io/botresources/br-oidc-test-idp:0.1.0
-          until nc -z localhost 4222 2>/dev/null; do sleep 0.5; done
-          # The IdP image has no in-container healthcheck (bare static
-          # binary): wait for /health from the host — svc-auth's startup
-          # OIDC discovery needs them up.
-          for port in 9100 9101; do
-            for _ in $(seq 1 60); do
-              curl -sf "http://localhost:${port}/health" > /dev/null 2>&1 && break
-              sleep 0.5
-            done
-            if ! curl -sf "http://localhost:${port}/health" > /dev/null 2>&1; then
-              echo "::error::OIDC test IdP on :${port} did not become healthy within 30s"
-              docker logs oidc-idp-a || true
-              docker logs oidc-idp-b || true
-              exit 1
-            fi
-          done
-
-      - name: build + start svc-auth
-        run: |
-          cargo build --release --locked
-          target/release/svc-auth &
-          for _ in $(seq 1 30); do
-            curl -sf http://localhost:8002/readyz > /dev/null 2>&1 && break
-            sleep 0.5
-          done
+          NATS_VERSION="v2.10.18"
+          URL="https://github.com/nats-io/nats-server/releases/download/${NATS_VERSION}/nats-server-${NATS_VERSION}-linux-amd64.tar.gz"
+          curl -sSfL "$URL" -o /tmp/nats-server.tar.gz
+          tar -xzf /tmp/nats-server.tar.gz -C /tmp
+          sudo install "/tmp/nats-server-${NATS_VERSION}-linux-amd64/nats-server" /usr/local/bin/nats-server
+          nats-server --version
 
       - name: run e2e tests
-        run: cargo test --test e2e -- --ignored
-
-      - name: teardown
-        if: always()
-        run: |
-          pkill -f "target/release/svc-auth" || true
-          docker rm -f nats oidc-idp-a oidc-idp-b || true
+        run: cargo test --test e2e

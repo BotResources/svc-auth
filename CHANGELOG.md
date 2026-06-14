@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 0.5.0
+
+### Security
+
+- **svc-auth gates, it does not block.** On `/auth/check`, an unknown,
+  unresolvable, or shape-malformed PAT/bearer credential resolves to **anonymous
+  (`200`)**, never `401` — gating a credential is "no session", not "rejected".
+  A backend KV error on the lookup returns `502` (the infrastructure is down, the
+  request cannot be answered). The JWT-cookie path is unchanged: an expired or
+  invalid access-token cookie still returns `401` when
+  `AUTH_CHECK_SILENT_REFRESH=false` (the front's explicit-refresh trigger).
+- **`bearer_tokens` is a required declared bucket — fail-loud at boot.**
+  `bearer_tokens`, `auth_refresh_tokens` and `auth_revoked_families` are *bound*
+  (`get_key_value`), never created (`create_key_value`). If any of the three is
+  absent at boot, svc-auth **exits non-zero** (`exit(1)`) so Kubernetes
+  reschedules it — there is no degraded "up-but-503" mode. Buckets are declared
+  by the deployment/tests, not by svc-auth.
+- **Bearer KV value is shape-validated.** A present-but-malformed entry (does not
+  deserialize into `br_core_auth::BearerTokenEntry`, which is
+  `deny_unknown_fields`) is treated as unresolved — it resolves anonymous, not
+  valid-by-key-presence.
+
+### Changed
+
+- Bump `br-rust-common` to v0.11.0 (`br-core-auth`, `br-util-observability`,
+  `br-util-axum-readiness`).
+
+### Removed
+
+- Dead `RefreshToken.token_hash` field and the direct `sha2` dependency it
+  forced. Refresh validation rests on the JWT signature plus the KV
+  `find_by_id(jti)` lookup; the stored hash was never read.
+
 ## 0.4.1
 
 ### Changed
