@@ -4,6 +4,12 @@ All notable changes to `svc-auth` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+
+- Relicensed from MIT to Apache-2.0.
+
 ## 0.4.0
 
 ### Changed
