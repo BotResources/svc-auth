@@ -23,7 +23,7 @@ pub struct AppState {
     pub jwt: Arc<JwtService>,
     pub oidc: Arc<OidcValidator>,
     pub refresh_store: Arc<RefreshTokenStore>,
-    pub bearer_validator: Option<Arc<BearerValidator>>,
+    pub bearer_validator: Arc<BearerValidator>,
     pub cookie_config: CookieConfig,
     pub auth_check_silent_refresh: bool,
 }

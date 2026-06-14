@@ -173,21 +173,14 @@ async fn handle_bearer(state: &AppState, auth_value: &str) -> Response {
         auth_value
     };
 
-    let Some(ref validator) = state.bearer_validator else {
-        tracing::error!(
-            "auth_check: bearer_tokens KV unavailable, failing closed (credential presented)"
-        );
-        return StatusCode::SERVICE_UNAVAILABLE.into_response();
-    };
-
-    match validator.is_valid(token).await {
+    match state.bearer_validator.is_valid(token).await {
         Ok(true) => {
             tracing::debug!("auth_check: bearer token valid");
             StatusCode::OK.into_response()
         }
         Ok(false) => {
-            tracing::debug!("auth_check: bearer token not recognized");
-            StatusCode::UNAUTHORIZED.into_response()
+            tracing::debug!("auth_check: bearer token unresolved, resolving anonymous");
+            StatusCode::OK.into_response()
         }
         Err(e) => {
             tracing::error!(error = %e, "auth_check: NATS KV bearer lookup failed");

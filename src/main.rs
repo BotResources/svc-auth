@@ -60,16 +60,15 @@ async fn main() {
 
     let jetstream = async_nats::jetstream::new(nats_client);
 
-    let bearer_validator = match jetstream.get_key_value("bearer_tokens").await {
-        Ok(kv) => {
-            tracing::info!("NATS KV bearer_tokens bound");
-            Some(Arc::new(BearerValidator::new(kv)))
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "NATS KV bearer_tokens absent; bearer validation fails closed (readiness DOWN)");
-            None
-        }
-    };
+    let bearer_tokens_kv = jetstream
+        .get_key_value("bearer_tokens")
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!(error = %e, "NATS KV bearer_tokens absent (declared bucket missing)");
+            std::process::exit(1);
+        });
+    let bearer_validator = Arc::new(BearerValidator::new(bearer_tokens_kv));
+    tracing::info!("NATS KV bearer_tokens bound");
 
     let refresh_tokens_kv = jetstream
         .get_key_value("auth_refresh_tokens")
@@ -138,10 +137,7 @@ async fn main() {
     }
 
     let refresh_store_ok = state.refresh_store.is_healthy().await;
-    let bearer_ok = match state.bearer_validator {
-        Some(ref validator) => validator.is_healthy().await,
-        None => false,
-    };
+    let bearer_ok = state.bearer_validator.is_healthy().await;
     if refresh_store_ok && bearer_ok {
         readiness.set_ready();
     } else {
