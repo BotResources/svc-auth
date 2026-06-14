@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Security
+
+- **Bearer validation fails closed.** When the `bearer_tokens` KV bucket is
+  unavailable, `/auth/check` with a presented credential no longer returns
+  `200`-anonymous (fail-open); it returns `503` and readiness goes DOWN. An
+  unknown/unresolvable credential against a *healthy* bucket still resolves to
+  anonymous (`200`, never `401`) — only the backend-absent case fails closed.
+- **No runtime auto-provisioning of KV buckets.** `bearer_tokens`,
+  `auth_refresh_tokens` and `auth_revoked_families` are now *bound*
+  (`get_key_value`), never created (`create_key_value`). A missing
+  `bearer_tokens` bucket sets readiness DOWN; a missing refresh bucket fails the
+  boot. Buckets are declared by the deployment/tests, not by svc-auth.
+- **Bearer KV value is shape-validated.** A present-but-malformed entry (does not
+  deserialize into `br_core_auth::BearerTokenEntry`, which is
+  `deny_unknown_fields`) is treated as invalid rather than valid-by-key-presence.
+
+### Changed
+
+- Bump `br-rust-common` to v0.11.0 (`br-core-auth`, `br-util-observability`,
+  `br-util-axum-readiness`).
+
+### Removed
+
+- Dead `RefreshToken.token_hash` field and the direct `sha2` dependency it
+  forced. Refresh validation rests on the JWT signature plus the KV
+  `find_by_id(jti)` lookup; the stored hash was never read.
+
 ## 0.4.1
 
 ### Changed

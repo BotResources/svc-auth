@@ -6,7 +6,6 @@ use uuid::Uuid;
 pub struct RefreshToken {
     pub id: Uuid,
     pub email: String,
-    pub token_hash: Vec<u8>,
     pub family_id: Uuid,
     pub used_at: Option<DateTime<Utc>>,
     pub replaced_by: Option<Uuid>,

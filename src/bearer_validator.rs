@@ -1,4 +1,4 @@
-use br_core_auth::bearer_token_key;
+use br_core_auth::{BearerTokenEntry, bearer_token_key};
 
 pub struct BearerValidator {
     kv: async_nats::jetstream::kv::Store,
@@ -15,7 +15,7 @@ impl BearerValidator {
     ) -> Result<bool, async_nats::error::Error<async_nats::jetstream::kv::EntryErrorKind>> {
         let key = bearer_token_key(token);
         match self.kv.get(&key).await {
-            Ok(Some(_)) => Ok(true),
+            Ok(Some(bytes)) => Ok(serde_json::from_slice::<BearerTokenEntry>(&bytes).is_ok()),
             Ok(None) => Ok(false),
             Err(e) => Err(e),
         }

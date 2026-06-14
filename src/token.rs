@@ -77,7 +77,7 @@ async fn handle_token(state: &AppState, body: &TokenRequest) -> Result<Response,
         .sign_access_token(email)
         .map_err(AppError::Internal)?;
 
-    let (refresh_jwt, token_id, token_hash) = state
+    let (refresh_jwt, token_id) = state
         .jwt
         .sign_refresh_token(email)
         .map_err(AppError::Internal)?;
@@ -86,7 +86,6 @@ async fn handle_token(state: &AppState, body: &TokenRequest) -> Result<Response,
     let refresh_token = RefreshToken {
         id: token_id,
         email: email.clone(),
-        token_hash,
         family_id,
         used_at: None,
         replaced_by: None,

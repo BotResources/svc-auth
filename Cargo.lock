@@ -173,11 +173,12 @@ dependencies = [
 
 [[package]]
 name = "br-core-auth"
-version = "0.10.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.10.0#32c463adc19791205230de75cd603ae375b7633d"
+version = "0.11.0"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v0.11.0#c186db041004ee190ca9c16243c78ccf70444f91"
 dependencies = [
  "base64",
  "br-core-kernel",
+ "br-core-scope",
  "serde",
  "serde_json",
  "sha2",
@@ -187,17 +188,26 @@ dependencies = [
 
 [[package]]
 name = "br-core-kernel"
-version = "0.10.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.10.0#32c463adc19791205230de75cd603ae375b7633d"
+version = "0.11.0"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v0.11.0#c186db041004ee190ca9c16243c78ccf70444f91"
 dependencies = [
  "serde",
  "uuid",
 ]
 
 [[package]]
+name = "br-core-scope"
+version = "0.11.0"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v0.11.0#c186db041004ee190ca9c16243c78ccf70444f91"
+dependencies = [
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "br-util-axum-readiness"
-version = "0.10.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.10.0#32c463adc19791205230de75cd603ae375b7633d"
+version = "0.11.0"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v0.11.0#c186db041004ee190ca9c16243c78ccf70444f91"
 dependencies = [
  "axum",
  "tracing",
@@ -205,8 +215,8 @@ dependencies = [
 
 [[package]]
 name = "br-util-observability"
-version = "0.10.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.10.0#32c463adc19791205230de75cd603ae375b7633d"
+version = "0.11.0"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v0.11.0#c186db041004ee190ca9c16243c78ccf70444f91"
 dependencies = [
  "axum",
  "chrono",
@@ -2096,7 +2106,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "sha2",
  "thiserror",
  "tokio",
  "tower-http",

@@ -113,7 +113,7 @@ async fn handle_refresh(
         .sign_access_token(email)
         .map_err(AppError::Internal)?;
 
-    let (new_refresh_jwt, new_token_id, new_hash) = state
+    let (new_refresh_jwt, new_token_id) = state
         .jwt
         .sign_refresh_token(email)
         .map_err(AppError::Internal)?;
@@ -121,7 +121,6 @@ async fn handle_refresh(
     let new_token = RefreshToken {
         id: new_token_id,
         email: email.clone(),
-        token_hash: new_hash,
         family_id: token_row.family_id,
         used_at: None,
         replaced_by: None,

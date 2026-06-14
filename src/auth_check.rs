@@ -117,7 +117,7 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
         }
     };
 
-    let (new_refresh_jwt, new_token_id, new_hash) = match state.jwt.sign_refresh_token(email) {
+    let (new_refresh_jwt, new_token_id) = match state.jwt.sign_refresh_token(email) {
         Ok(t) => t,
         Err(e) => {
             tracing::error!(error = %e, "auth_check: failed to sign new refresh token");
@@ -128,7 +128,6 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
     let new_token = crate::refresh_store::RefreshToken {
         id: new_token_id,
         email: email.clone(),
-        token_hash: new_hash,
         family_id: token_row.family_id,
         used_at: None,
         replaced_by: None,
@@ -175,8 +174,10 @@ async fn handle_bearer(state: &AppState, auth_value: &str) -> Response {
     };
 
     let Some(ref validator) = state.bearer_validator else {
-        tracing::debug!("auth_check: no bearer validator configured, treating as anonymous");
-        return StatusCode::OK.into_response();
+        tracing::error!(
+            "auth_check: bearer_tokens KV unavailable, failing closed (credential presented)"
+        );
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
 
     match validator.is_valid(token).await {

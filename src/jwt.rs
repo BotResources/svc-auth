@@ -78,7 +78,7 @@ impl JwtService {
         Ok(token_data.claims)
     }
 
-    pub fn sign_refresh_token(&self, email: &str) -> Result<(String, Uuid, Vec<u8>), String> {
+    pub fn sign_refresh_token(&self, email: &str) -> Result<(String, Uuid), String> {
         let token_id = Uuid::now_v7();
         let now = Utc::now().timestamp();
         let claims = RefreshClaims {
@@ -91,10 +91,7 @@ impl JwtService {
         let jwt = encode(&Header::default(), &claims, &self.encoding_key)
             .map_err(|e| format!("failed to sign refresh token: {e}"))?;
 
-        use sha2::{Digest, Sha256};
-        let hash = Sha256::digest(jwt.as_bytes()).to_vec();
-
-        Ok((jwt, token_id, hash))
+        Ok((jwt, token_id))
     }
 
     pub fn verify_refresh_token(&self, token: &str) -> Result<RefreshClaims, JwtError> {
@@ -163,8 +160,7 @@ mod tests {
     #[test]
     fn sign_and_verify_refresh_token() {
         let svc = test_service();
-        let (token, token_id, hash) = svc.sign_refresh_token("alice@example.com").unwrap();
-        assert!(!hash.is_empty());
+        let (token, token_id) = svc.sign_refresh_token("alice@example.com").unwrap();
 
         let claims = svc.verify_refresh_token(&token).unwrap();
         assert_eq!(claims.sub, "alice@example.com");
