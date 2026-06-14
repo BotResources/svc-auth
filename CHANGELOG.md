@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-14
+
 ### Changed
 
 - Relicensed from MIT to Apache-2.0.
