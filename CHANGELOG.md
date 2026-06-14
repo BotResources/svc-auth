@@ -9,6 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 
 - Relicensed from MIT to Apache-2.0.
+- Bump `br-rust-common` to v0.10.0 (`br-core-auth`, `br-util-observability`,
+  `br-util-axum-readiness`). Mechanical pin refresh against the unified
+  workspace tag; no public-surface or contract change in the consumed crates.
 
 ## 0.4.0
 
