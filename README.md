@@ -43,7 +43,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-There is **no verification bypass**: every id_token must verify against a configured provider, in every environment. For local development or e2e, run the pilotable test IdP from [br-e2e-harness](https://github.com/BotResources/br-e2e-harness) (`ghcr.io/botresources/br-oidc-test-idp`) and declare it like any provider — see `docker-compose.e2e.yml` and `.env.example`.
+There is **no verification bypass**: every id_token must verify against a configured provider, in every environment. For local development, run the pilotable test IdP from [br-e2e-harness](https://github.com/BotResources/br-e2e-harness) (`ghcr.io/botresources/br-oidc-test-idp`) and declare it like any provider — see `.env.example`. The e2e suite (`scripts/e2e/run.sh`) needs no external stack: it spawns its own `nats-server` and in-process OIDC IdPs (requires `nats-server` on `PATH`).
 
 ## Configuration
 

@@ -8,19 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Security
 
-- **Bearer validation fails closed.** When the `bearer_tokens` KV bucket is
-  unavailable, `/auth/check` with a presented credential no longer returns
-  `200`-anonymous (fail-open); it returns `503` and readiness goes DOWN. An
-  unknown/unresolvable credential against a *healthy* bucket still resolves to
-  anonymous (`200`, never `401`) — only the backend-absent case fails closed.
-- **No runtime auto-provisioning of KV buckets.** `bearer_tokens`,
-  `auth_refresh_tokens` and `auth_revoked_families` are now *bound*
-  (`get_key_value`), never created (`create_key_value`). A missing
-  `bearer_tokens` bucket sets readiness DOWN; a missing refresh bucket fails the
-  boot. Buckets are declared by the deployment/tests, not by svc-auth.
+- **svc-auth gates, it does not block.** On `/auth/check`, an unknown,
+  unresolvable, or shape-malformed PAT/bearer credential resolves to **anonymous
+  (`200`)**, never `401` — gating a credential is "no session", not "rejected".
+  A backend KV error on the lookup returns `502` (the infrastructure is down, the
+  request cannot be answered). The JWT-cookie path is unchanged: an expired or
+  invalid access-token cookie still returns `401` when
+  `AUTH_CHECK_SILENT_REFRESH=false` (the front's explicit-refresh trigger).
+- **`bearer_tokens` is a required declared bucket — fail-loud at boot.**
+  `bearer_tokens`, `auth_refresh_tokens` and `auth_revoked_families` are *bound*
+  (`get_key_value`), never created (`create_key_value`). If any of the three is
+  absent at boot, svc-auth **exits non-zero** (`exit(1)`) so Kubernetes
+  reschedules it — there is no degraded "up-but-503" mode. Buckets are declared
+  by the deployment/tests, not by svc-auth.
 - **Bearer KV value is shape-validated.** A present-but-malformed entry (does not
   deserialize into `br_core_auth::BearerTokenEntry`, which is
-  `deny_unknown_fields`) is treated as invalid rather than valid-by-key-presence.
+  `deny_unknown_fields`) is treated as unresolved — it resolves anonymous, not
+  valid-by-key-presence.
 
 ### Changed
 

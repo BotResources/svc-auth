@@ -94,21 +94,7 @@ impl TestContext {
         let port = free_port();
         let base_url = format!("http://127.0.0.1:{port}");
 
-        let envs: Vec<(String, String)> = vec![
-            ("PORT".into(), port.to_string()),
-            ("NATS_URL".into(), nats.url()),
-            ("JWT_SECRET".into(), JWT_SECRET.into()),
-            ("JWT_ISSUER".into(), JWT_ISSUER.into()),
-            ("ENVIRONMENT".into(), "test".into()),
-            ("SECURE_COOKIES".into(), "false".into()),
-            ("AUTH_CHECK_SILENT_REFRESH".into(), "false".into()),
-            ("JWKS_REFRESH_COOLDOWN_SECONDS".into(), "1".into()),
-            ("OIDC_E2EA_DISCOVERY_URL".into(), idp_a.issuer.clone()),
-            ("OIDC_E2EA_CLIENT_ID".into(), PROVIDER_A_CLIENT.into()),
-            ("OIDC_E2EB_DISCOVERY_URL".into(), idp_b.issuer.clone()),
-            ("OIDC_E2EB_CLIENT_ID".into(), PROVIDER_B_CLIENT.into()),
-            ("OIDC_E2EB_EMAIL_CLAIM".into(), "preferred_username".into()),
-        ];
+        let envs = spawn_envs(port, &nats.url(), &idp_a, &idp_b);
         let env_refs: Vec<(&str, &str)> =
             envs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
@@ -157,6 +143,24 @@ fn free_port() -> u16 {
         .local_addr()
         .unwrap()
         .port()
+}
+
+fn spawn_envs(port: u16, nats_url: &str, idp_a: &Idp, idp_b: &Idp) -> Vec<(String, String)> {
+    vec![
+        ("PORT".into(), port.to_string()),
+        ("NATS_URL".into(), nats_url.to_string()),
+        ("JWT_SECRET".into(), JWT_SECRET.into()),
+        ("JWT_ISSUER".into(), JWT_ISSUER.into()),
+        ("ENVIRONMENT".into(), "test".into()),
+        ("SECURE_COOKIES".into(), "false".into()),
+        ("AUTH_CHECK_SILENT_REFRESH".into(), "false".into()),
+        ("JWKS_REFRESH_COOLDOWN_SECONDS".into(), "1".into()),
+        ("OIDC_E2EA_DISCOVERY_URL".into(), idp_a.issuer.clone()),
+        ("OIDC_E2EA_CLIENT_ID".into(), PROVIDER_A_CLIENT.into()),
+        ("OIDC_E2EB_DISCOVERY_URL".into(), idp_b.issuer.clone()),
+        ("OIDC_E2EB_CLIENT_ID".into(), PROVIDER_B_CLIENT.into()),
+        ("OIDC_E2EB_EMAIL_CLAIM".into(), "preferred_username".into()),
+    ]
 }
 
 async fn declare_buckets(nats_url: &str, buckets: &[&str]) {
@@ -312,55 +316,51 @@ async fn metrics_exposes_prometheus_exposition() {
 }
 
 // ---------------------------------------------------------------------------
-// Fail-closed: bearer_tokens bucket absent at boot
+// Fail-loud: bearer_tokens bucket absent at boot → svc-auth exits non-zero
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn bearer_bucket_absent_keeps_readiness_down() {
-    // Given the bearer_tokens bucket is NOT declared (only the refresh buckets)
-    let ctx = TestContext::start(&["auth_refresh_tokens", "auth_revoked_families"]).await;
+async fn bearer_bucket_absent_fails_boot() {
+    // Given the bearer_tokens bucket is NOT declared (only the refresh buckets),
+    // bearer_tokens is a required declared bucket — like the refresh buckets, its
+    // absence is fail-loud, not a degraded-but-running mode.
+    let idp_a = Idp::start(PROVIDER_A_CLIENT).await;
+    let idp_b = Idp::start(PROVIDER_B_CLIENT).await;
+    let nats = SpawnedNats::start().await;
+    declare_buckets(
+        &nats.url(),
+        &["auth_refresh_tokens", "auth_revoked_families"],
+    )
+    .await;
 
-    // When readiness is probed (after the binary is live)
-    // Then readiness never comes up — bearer validation has no backing store
+    let port = free_port();
+    let base_url = format!("http://127.0.0.1:{port}");
+    let envs = spawn_envs(port, &nats.url(), &idp_a, &idp_b);
+    let env_refs: Vec<(&str, &str)> = envs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let mut svc = SpawnedProcess::spawn(SVC_AUTH_BIN, &[], &env_refs);
+
+    // When it boots, it never comes live — it exits because a declared bucket is missing
+    let outcome = svc
+        .await_boot(&format!("{base_url}/livez"), BOOT_TIMEOUT)
+        .await;
+
+    // Then the process exited non-zero (K8s reschedules), it did not stay up
+    let status = outcome.exit_status().unwrap_or_else(|| {
+        panic!("svc-auth must EXIT when bearer_tokens is absent, got {outcome:?}")
+    });
     assert!(
-        !ctx.ready().await,
-        "readiness must stay DOWN when bearer_tokens is absent"
+        !status.success(),
+        "svc-auth must exit non-zero when bearer_tokens is absent, got {status}"
     );
 
-    ctx.shutdown().await;
-}
-
-#[tokio::test]
-async fn bearer_bucket_absent_credential_check_is_503_never_anon_200() {
-    // Given the bearer_tokens bucket is absent at boot (fail-closed posture)
-    let ctx = TestContext::start(&["auth_refresh_tokens", "auth_revoked_families"]).await;
-    let client = Client::new();
-
-    // When /auth/check is called WITH a presented bearer credential
-    let resp = client
-        .get(format!("{}/auth/check", ctx.base_url))
-        .header("authorization", "Bearer some-presented-token")
-        .send()
-        .await
-        .unwrap();
-
-    // Then it fails closed: 503, never a fail-open anonymous 200
-    assert_eq!(
-        resp.status(),
-        503,
-        "credential against an absent bearer_tokens bucket must be 503, never 200-anon"
-    );
-
-    ctx.shutdown().await;
+    svc.shutdown().await;
+    nats.shutdown().await;
 }
 
 // ---------------------------------------------------------------------------
 // Unknown bearer against a HEALTHY bucket resolves anonymous, never 401
 // ---------------------------------------------------------------------------
 
-// RED-BY-DESIGN: spec says anonymous 200; current code returns 401 (handle_bearer
-// Ok(false) branch). The CHANGELOG claims this exact behavior; the code does not
-// implement it. The oracle pins the spec, not the implementation's habit.
 #[tokio::test]
 async fn unknown_bearer_against_healthy_bucket_resolves_anonymous_200() {
     // Given a fully-provisioned svc-auth (bearer_tokens present and healthy)
@@ -535,11 +535,6 @@ async fn auth_check_expired_jwt_cookie_returns_401() {
     ctx.shutdown().await;
 }
 
-// RED-BY-DESIGN: the spec (CHANGELOG "Bearer validation fails closed") states an
-// unknown/unresolvable credential against a HEALTHY bucket resolves to anonymous
-// (200, never 401). The current code returns 401 on the bearer Ok(false) branch
-// (src/auth_check.rs handle_bearer). The oracle asserts the spec; the red is the
-// finding — same root as unknown_bearer_against_healthy_bucket_resolves_anonymous_200.
 #[tokio::test]
 async fn auth_check_unknown_jwt_as_bearer_resolves_anonymous_200() {
     let ctx = TestContext::full().await;
