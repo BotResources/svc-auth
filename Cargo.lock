@@ -173,8 +173,8 @@ dependencies = [
 
 [[package]]
 name = "br-core-auth"
-version = "0.8.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.8.0#4d1defe957864dd967dc27c76274c109eb119a53"
+version = "0.10.0"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v0.10.0#32c463adc19791205230de75cd603ae375b7633d"
 dependencies = [
  "base64",
  "br-core-kernel",
@@ -187,8 +187,8 @@ dependencies = [
 
 [[package]]
 name = "br-core-kernel"
-version = "0.8.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.8.0#4d1defe957864dd967dc27c76274c109eb119a53"
+version = "0.10.0"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v0.10.0#32c463adc19791205230de75cd603ae375b7633d"
 dependencies = [
  "serde",
  "uuid",
@@ -196,8 +196,8 @@ dependencies = [
 
 [[package]]
 name = "br-util-axum-readiness"
-version = "0.8.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.8.0#4d1defe957864dd967dc27c76274c109eb119a53"
+version = "0.10.0"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v0.10.0#32c463adc19791205230de75cd603ae375b7633d"
 dependencies = [
  "axum",
  "tracing",
@@ -205,8 +205,8 @@ dependencies = [
 
 [[package]]
 name = "br-util-observability"
-version = "0.8.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.8.0#4d1defe957864dd967dc27c76274c109eb119a53"
+version = "0.10.0"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v0.10.0#32c463adc19791205230de75cd603ae375b7633d"
 dependencies = [
  "axum",
  "chrono",
@@ -488,7 +488,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1220,7 +1220,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1750,7 +1750,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2055,7 +2055,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2082,7 +2082,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "svc-auth"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "async-nats",
  "axum",
