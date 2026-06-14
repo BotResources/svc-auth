@@ -2,15 +2,15 @@
 
 > [!IMPORTANT]
 > **This repository is maintained for BotResources and its authorized clients.**
-> It is published under MIT and made available read-only for visibility and
-> reuse. The MIT license governs your rights to use, modify, and fork the code;
+> It is published under Apache-2.0 and made available read-only for visibility and
+> reuse. The Apache-2.0 license governs your rights to use, modify, and fork the code;
 > the rest of this notice describes our operational stance, not a legal
 > restriction.
 >
 > **We do not accept external pull requests, issues, or support requests.**
 > Issues and Discussions are disabled. PRs from accounts that are not on the
 > internal contributor allowlist will be closed without review. Forks are
-> permitted by MIT and we do not (and cannot) prevent them; we simply do not
+> permitted by Apache-2.0 and we do not (and cannot) prevent them; we simply do not
 > monitor, support, or accept contributions from forks outside the BR
 > commercial relationship.
 >
@@ -117,4 +117,4 @@ Manual publish / dry-run:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE).

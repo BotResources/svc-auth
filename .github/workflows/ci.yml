@@ -20,7 +20,7 @@ jobs:
   # ---------------------------------------------------------------------------
   fmt:
     name: cargo fmt (auto-fix)
-    runs-on: arc-ubuntu
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -62,7 +62,7 @@ jobs:
   check:
     name: clippy + test
     needs: fmt
-    runs-on: arc-ubuntu
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -101,7 +101,7 @@ jobs:
   supply-chain:
     name: supply chain (audit + deny + machete)
     needs: fmt
-    runs-on: arc-ubuntu
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -124,7 +124,7 @@ jobs:
   # ---------------------------------------------------------------------------
   changelog:
     name: changelog entry present
-    runs-on: arc-ubuntu
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -147,7 +147,7 @@ jobs:
   # ---------------------------------------------------------------------------
   secrets:
     name: trufflehog (secret scan)
-    runs-on: arc-ubuntu
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -161,7 +161,7 @@ jobs:
   # ---------------------------------------------------------------------------
   shellcheck:
     name: shellcheck
-    runs-on: arc-ubuntu
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ludeeus/action-shellcheck@master
@@ -175,7 +175,7 @@ jobs:
   e2e:
     name: e2e
     needs: check
-    runs-on: arc-ubuntu
+    runs-on: ubuntu-latest
     env:
       NATS_URL: nats://localhost:4222
       JWT_SECRET: e2e-test-secret-key-at-least-32-chars!
@@ -202,7 +202,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: start nats + oidc test idps
-        # Plain `docker run` (not docker-compose.e2e.yml): the arc-ubuntu
+        # Plain `docker run` (not docker-compose.e2e.yml): the ubuntu-latest
         # runner image ships docker without the compose plugin. The compose
         # file stays the local-dev path (scripts/e2e/up.sh); keep both in
         # sync when touching the stack.

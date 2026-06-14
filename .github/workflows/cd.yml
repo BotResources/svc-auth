@@ -25,7 +25,7 @@ env:
 jobs:
   publish:
     name: Publish
-    runs-on: arc-ubuntu
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
