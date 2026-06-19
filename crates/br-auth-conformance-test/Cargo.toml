@@ -1,0 +1,28 @@
+[package]
+name = "br-auth-conformance-test"
+description = "Independent-anchor conformance battery guarding the br-auth-contract bearer wire: a Go reimplementation freezes the sealed-envelope bytes, KV-key derivation, and ChaCha20-Poly1305 AAD scheme; the Rust checks open/seal that frozen wire THROUGH the real br-auth-contract types (the lib is the oracle), and round-trip a sealed bearer over the REAL br-util-nats-fabric published-language KV via FabricTestNats — TEST FIXTURE ONLY."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/BotResources/svc-auth"
+
+[dependencies]
+br-auth-contract = { path = "../br-auth-contract", version = "0.1.0" }
+br-core-kernel = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-kernel", tag = "v1.0.2", version = "1.0.2" }
+br-util-nats-fabric = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-nats-fabric", tag = "v1.0.2", version = "1.0.2" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+uuid = { version = "1", features = ["v7", "serde"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+
+br-test-harness = { git = "https://github.com/BotResources/br-e2e-harness", package = "br-test-harness", tag = "v1.0.1", version = "1.0.1", default-features = false, features = [
+    "nats-fabric",
+    "spawned-nats",
+] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
