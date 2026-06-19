@@ -77,8 +77,8 @@ the **real `br-util-nats-fabric` published-language API** end to end.
 | Id | Asserts |
 |---|---|
 | **k1** | a Go-sealed bearer **published** to `identity/bearer_tokens/<hash>` through the real `PublishedLanguagePublisher` is **read back** by the real `PublishedLanguageReader` scoped to the bearer prefix and **opened through the lib** into the original entry, for **both** the human and service actor shapes — the `SealedBearer` rides the **generic fabric published-language read API (Reader)** transparently (the inter-crate claim deferred to this crate). |
-| **k3** | a non-`SealedBearer` (garbage JSON) value published under the bearer prefix makes the bearer-scoped `PublishedLanguageReader::<SealedBearer>().entries(prefix)` **fail closed** with a `FabricError::Decode` naming the offending key — the fabric scan does **not** silently skip an undecodable cohabiting value (shared-bucket contract against a buggy producer). |
 | **k2** | a real `PublishedLanguageReader` scoped to the **directory** prefix `identity/users/` does **not** pick up a bearer key sharing the bucket, and a reader scoped to `identity/bearer_tokens/` does not pick up a directory key — **cohabitation safety** in the one shared `PUBLISHED_LANGUAGE` bucket. |
+| **k3** | a non-`SealedBearer` (garbage JSON) value published under the bearer prefix makes the bearer-scoped `PublishedLanguageReader::<SealedBearer>().entries(prefix)` **fail closed** with a `FabricError::Decode` naming the offending key — the fabric scan does **not** silently skip an undecodable cohabiting value (shared-bucket contract against a buggy producer). |
 
 ## Running it
 

@@ -195,3 +195,31 @@ jobs:
 
       - name: run e2e tests
         run: cargo test --test e2e
+
+  conformance:
+    name: conformance
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: install nats-server
+        run: |
+          NATS_VERSION="v2.10.18"
+          URL="https://github.com/nats-io/nats-server/releases/download/${NATS_VERSION}/nats-server-${NATS_VERSION}-linux-amd64.tar.gz"
+          curl -sSfL "$URL" -o /tmp/nats-server.tar.gz
+          tar -xzf /tmp/nats-server.tar.gz -C /tmp
+          sudo install "/tmp/nats-server-${NATS_VERSION}-linux-amd64/nats-server" /usr/local/bin/nats-server
+          nats-server --version
+
+      - name: workspace unit tests (bearer-contract crates)
+        run: cargo test -p br-auth-contract -p br-auth-conformance-test -p br-auth-identity-util
+
+      - name: ignored real-infra battery (Go wire + KV)
+        run: cargo test -p br-auth-contract -p br-auth-conformance-test -p br-auth-identity-util -- --ignored
