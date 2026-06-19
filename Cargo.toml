@@ -1,3 +1,7 @@
+[workspace]
+members = ["crates/br-auth-contract"]
+resolver = "3"
+
 [package]
 name = "svc-auth"
 description = "Portable, infra-light authentication gatekeeper: multi-provider OIDC id_token to internal JWT (HttpOnly cookies), refresh-token rotation with reuse detection, and bearer-token validation over NATS KV (no database)."
