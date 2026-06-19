@@ -5,6 +5,7 @@ use axum::Router;
 use axum::http::{HeaderName, Method};
 use axum::routing::{get, post};
 use br_util_axum_readiness::{ReadinessHandle, readiness_route};
+use br_util_nats_fabric::Fabric;
 use br_util_observability::{
     http_metrics_layer, init_logging, init_metrics, liveness_route, metrics_route,
 };
@@ -60,15 +61,22 @@ async fn main() {
 
     let jetstream = async_nats::jetstream::new(nats_client);
 
-    let bearer_tokens_kv = jetstream
-        .get_key_value("bearer_tokens")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::error!(error = %e, "NATS KV bearer_tokens absent (declared bucket missing)");
+    let fabric = match Fabric::connect(&config.nats_url).await {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to connect the NATS fabric");
             std::process::exit(1);
-        });
-    let bearer_validator = Arc::new(BearerValidator::new(bearer_tokens_kv));
-    tracing::info!("NATS KV bearer_tokens bound");
+        }
+    };
+
+    let bearer_validator = match BearerValidator::open(&fabric, config.bearer_seal_key).await {
+        Ok(v) => Arc::new(v),
+        Err(e) => {
+            tracing::error!(error = %e, "PUBLISHED_LANGUAGE bearer reader bind failed (declared bucket missing)");
+            std::process::exit(1);
+        }
+    };
+    tracing::info!("PUBLISHED_LANGUAGE bearer reader bound");
 
     let refresh_tokens_kv = jetstream
         .get_key_value("auth_refresh_tokens")

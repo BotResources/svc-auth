@@ -1,3 +1,7 @@
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use br_auth_contract::BearerSealKey;
+
 const JWKS_REFRESH_COOLDOWN_FLOOR_SECS: u64 = 1;
 
 pub struct AppConfig {
@@ -12,6 +16,7 @@ pub struct AppConfig {
     pub auth_check_silent_refresh: bool,
     pub oidc_providers: Vec<OidcProviderConfig>,
     pub jwks_refresh_cooldown_secs: u64,
+    pub bearer_seal_key: BearerSealKey,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +89,8 @@ impl AppConfig {
 
         let auth_check_silent_refresh = parse_bool_env("AUTH_CHECK_SILENT_REFRESH", true);
 
+        let bearer_seal_key = parse_bearer_seal_key()?;
+
         let oidc_providers = discover_oidc_providers(&environment)?;
 
         Ok(Self {
@@ -98,8 +105,17 @@ impl AppConfig {
             auth_check_silent_refresh,
             oidc_providers,
             jwks_refresh_cooldown_secs,
+            bearer_seal_key,
         })
     }
+}
+
+fn parse_bearer_seal_key() -> Result<BearerSealKey, String> {
+    let encoded = required_env("BEARER_SEAL_KEY")?;
+    let bytes = STANDARD
+        .decode(encoded.as_bytes())
+        .map_err(|_| "BEARER_SEAL_KEY must be valid base64".to_string())?;
+    BearerSealKey::from_bytes(&bytes).map_err(|e| format!("BEARER_SEAL_KEY is invalid: {e}"))
 }
 
 fn discover_oidc_providers(environment: &Environment) -> Result<Vec<OidcProviderConfig>, String> {

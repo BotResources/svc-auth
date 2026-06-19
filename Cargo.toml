@@ -9,7 +9,7 @@ resolver = "3"
 [package]
 name = "svc-auth"
 description = "Portable, infra-light authentication gatekeeper: multi-provider OIDC id_token to internal JWT (HttpOnly cookies), refresh-token rotation with reuse detection, and bearer-token validation over NATS KV (no database)."
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -30,9 +30,13 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 async-nats = "0.48"
 
 br-core-auth = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-auth", tag = "v1.0.2", version = "1.0.2" }
+br-core-kernel = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-kernel", tag = "v1.0.2", version = "1.0.2" }
 
+br-util-nats-fabric = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-nats-fabric", tag = "v1.0.2", version = "1.0.2" }
 br-util-observability = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-observability", tag = "v1.0.2", version = "1.0.2" }
 br-util-axum-readiness = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-axum-readiness", tag = "v1.0.2", version = "1.0.2" }
+
+br-auth-contract = { path = "crates/br-auth-contract", version = "0.1.0" }
 
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -46,9 +50,10 @@ br-test-harness = { git = "https://github.com/BotResources/br-e2e-harness", pack
     "oidc",
     "spawned-nats",
     "nats",
+    "nats-fabric",
     "http-client",
 ] }
-br-core-auth = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-auth", tag = "v1.0.2", version = "1.0.2" }
+br-auth-identity-util = { path = "crates/br-auth-identity-util", version = "0.1.0" }
 async-nats = "0.48"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 tokio = { version = "1", features = ["full"] }

@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 1.0.1
+
+### Security
+
+- **`/auth/check` now fails closed on an unresolved bearer.** A presented
+  `Authorization: Bearer <token>` that does not resolve to a sealed entry in
+  `PUBLISHED_LANGUAGE` (key absent, wrong key, or tampered ciphertext) is now
+  rejected with **`401`**. Previously an unresolved bearer was treated as an
+  anonymous `200` — a fail-open the gateway could mistake for a valid session.
+- The binary no longer reads the legacy **plaintext** `br_core_auth::BearerTokenEntry`
+  from the standalone `bearer_tokens` bucket. It now reads the **AEAD-sealed**
+  `br-auth-contract` wire (`SealedBearer`, ChaCha20-Poly1305, bound to its KV key
+  via the AEAD AAD) from the `PUBLISHED_LANGUAGE` bucket under the
+  `identity/bearer_tokens/` key prefix — bringing the binary into compliance with
+  the already-published bearer contract.
+
+### Changed
+
+- All bearer-path NATS access now goes through the `br-util-nats-fabric` Fabric
+  (`PublishedLanguageReader`); the raw `async_nats` bearer lookup is removed. The
+  refresh/revoked-family stores are unchanged.
+- **New required env `BEARER_SEAL_KEY`** — the base64 (std) ChaCha20-Poly1305
+  32-byte seal key used to open sealed bearer entries. Boot fails loud if it is
+  absent or not a valid 32-byte key.
+- **New required declared bucket `PUBLISHED_LANGUAGE`** replaces `bearer_tokens`
+  in the boot bind-list; an absent `PUBLISHED_LANGUAGE` fails the boot (the
+  `bearer_tokens` bucket is no longer bound).
+- On a resolved bearer, `/auth/check` exposes the resolved actor to the gateway
+  via response headers: `X-Auth-User-Id` (for a human actor) or
+  `X-Auth-Service-Account-Id` (for a service actor), plus `X-Auth-Token-Id`.
+  svc-auth still does **not** build a Passport — it exposes the resolved actor only.
+
 ## 1.0.0
 
 ### Changed
