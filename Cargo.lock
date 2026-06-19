@@ -173,8 +173,8 @@ dependencies = [
 
 [[package]]
 name = "br-core-auth"
-version = "0.11.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.11.0#c186db041004ee190ca9c16243c78ccf70444f91"
+version = "1.0.2"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v1.0.2#3513953956453cd39f6da4a492bb8f251405c597"
 dependencies = [
  "base64",
  "br-core-kernel",
@@ -188,8 +188,8 @@ dependencies = [
 
 [[package]]
 name = "br-core-kernel"
-version = "0.11.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.11.0#c186db041004ee190ca9c16243c78ccf70444f91"
+version = "1.0.2"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v1.0.2#3513953956453cd39f6da4a492bb8f251405c597"
 dependencies = [
  "serde",
  "uuid",
@@ -197,8 +197,8 @@ dependencies = [
 
 [[package]]
 name = "br-core-scope"
-version = "0.11.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.11.0#c186db041004ee190ca9c16243c78ccf70444f91"
+version = "1.0.2"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v1.0.2#3513953956453cd39f6da4a492bb8f251405c597"
 dependencies = [
  "serde",
  "thiserror",
@@ -206,8 +206,8 @@ dependencies = [
 
 [[package]]
 name = "br-test-harness"
-version = "0.5.1"
-source = "git+https://github.com/BotResources/br-e2e-harness?tag=v0.5.1#0606dc20960484afa133adf0a3db3824324ff1e8"
+version = "1.0.1"
+source = "git+https://github.com/BotResources/br-e2e-harness?tag=v1.0.1#9b36a0f400523c0b9bc4c304e1f6d18a9fe69891"
 dependencies = [
  "async-nats",
  "dotenvy",
@@ -225,8 +225,8 @@ dependencies = [
 
 [[package]]
 name = "br-util-axum-readiness"
-version = "0.11.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.11.0#c186db041004ee190ca9c16243c78ccf70444f91"
+version = "1.0.2"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v1.0.2#3513953956453cd39f6da4a492bb8f251405c597"
 dependencies = [
  "axum",
  "tracing",
@@ -234,8 +234,8 @@ dependencies = [
 
 [[package]]
 name = "br-util-observability"
-version = "0.11.0"
-source = "git+https://github.com/BotResources/br-rust-common?tag=v0.11.0#c186db041004ee190ca9c16243c78ccf70444f91"
+version = "1.0.2"
+source = "git+https://github.com/BotResources/br-rust-common?tag=v1.0.2#3513953956453cd39f6da4a492bb8f251405c597"
 dependencies = [
  "axum",
  "chrono",
@@ -518,7 +518,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1285,7 +1285,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1361,8 +1361,8 @@ dependencies = [
 
 [[package]]
 name = "oidc-test-idp"
-version = "0.5.1"
-source = "git+https://github.com/BotResources/br-e2e-harness?tag=v0.5.1#0606dc20960484afa133adf0a3db3824324ff1e8"
+version = "1.0.1"
+source = "git+https://github.com/BotResources/br-e2e-harness?tag=v1.0.1#9b36a0f400523c0b9bc4c304e1f6d18a9fe69891"
 dependencies = [
  "axum",
  "base64",
@@ -1895,7 +1895,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2200,7 +2200,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2293,10 +2293,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
