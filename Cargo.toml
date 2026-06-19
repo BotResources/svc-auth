@@ -1,5 +1,9 @@
 [workspace]
-members = ["crates/br-auth-contract", "crates/br-auth-conformance-test"]
+members = [
+    "crates/br-auth-contract",
+    "crates/br-auth-conformance-test",
+    "crates/br-auth-identity-util",
+]
 resolver = "3"
 
 [package]

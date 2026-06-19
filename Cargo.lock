@@ -274,6 +274,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "br-auth-identity-util"
+version = "0.1.0"
+dependencies = [
+ "br-auth-contract",
+ "br-core-kernel",
+ "br-test-harness",
+ "br-util-nats-fabric",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "br-core-auth"
 version = "1.0.2"
 source = "git+https://github.com/BotResources/br-rust-common?tag=v1.0.2#3513953956453cd39f6da4a492bb8f251405c597"
