@@ -17,7 +17,7 @@ thiserror = "2"
 br-core-kernel = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-kernel", tag = "v1.0.2", version = "1.0.2" }
 uuid = { version = "1", features = ["v7"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-br-test-harness = { git = "https://github.com/BotResources/br-e2e-harness", package = "br-test-harness", tag = "v1.0.1", version = "1.0.1", default-features = false, features = [
+br-test-harness = { git = "https://github.com/BotResources/br-e2e-harness", package = "br-test-harness", tag = "v1.0.2", version = "1.0.2", default-features = false, features = [
     "nats-fabric",
     "spawned-nats",
 ] }

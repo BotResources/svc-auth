@@ -1,10 +1,9 @@
 use std::time::Duration;
 
-use async_nats::jetstream;
 use br_auth_contract::{BearerEntry, BearerSealKey, SealedBearer, bearer_token_kv_key, open};
 use br_auth_identity_util::BearerPublisher;
 use br_core_kernel::{Actor, UserId};
-use br_test_harness::{FabricTestNats, SpawnedProcess, recreate_kv};
+use br_test_harness::{FabricTestNats, SpawnedProcess};
 use br_util_nats_fabric::KvKey;
 use reqwest::Client;
 use uuid::Uuid;
@@ -21,8 +20,6 @@ const KNOWN_USER_ID: Uuid = Uuid::from_u128(0x1111_2222_3333_4444_5555_6666_7777
 const KNOWN_TOKEN_ID: Uuid = Uuid::from_u128(0x9999_aaaa_bbbb_cccc_dddd_eeee_ffff_0000);
 const RAW_TOKEN: &str = "brk_sealed_bearer_under_test";
 
-const LEGACY_REFRESH_BUCKETS: &[&str] = &["auth_refresh_tokens", "auth_revoked_families"];
-
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -31,14 +28,13 @@ fn free_port() -> u16 {
         .port()
 }
 
-async fn declare_legacy_refresh_buckets(nats_url: &str) {
-    let client = br_test_harness::nats::connect(nats_url)
+async fn provisioned_nats() -> FabricTestNats {
+    FabricTestNats::start()
         .await
-        .expect("connect to FabricTestNats for legacy bucket provisioning");
-    let js = jetstream::new(client);
-    for bucket in LEGACY_REFRESH_BUCKETS {
-        recreate_kv(&js, bucket).await;
-    }
+        .with_published_language()
+        .await
+        .with_ephemeral_auth()
+        .await
 }
 
 fn spawn_envs(port: u16, nats_url: &str) -> Vec<(String, String)> {
@@ -67,13 +63,7 @@ fn known_entry() -> BearerEntry {
 
 #[tokio::test]
 async fn bearer_sealed_in_published_language_resolves() {
-    let nats = FabricTestNats::start()
-        .await
-        .with_published_language()
-        .await
-        .with_bearer_tokens()
-        .await;
-    declare_legacy_refresh_buckets(&nats.url()).await;
+    let nats = provisioned_nats().await;
 
     let port = free_port();
     let base_url = format!("http://127.0.0.1:{port}");
@@ -118,24 +108,6 @@ async fn bearer_sealed_in_published_language_resolves() {
     assert!(
         !at_rest.contains(RAW_TOKEN),
         "stored bytes leak the raw token (not sealed): {at_rest}"
-    );
-
-    let raw_client = br_test_harness::nats::connect(&nats.url())
-        .await
-        .expect("connect for legacy bucket inspection");
-    let raw_js = jetstream::new(raw_client);
-    let legacy = raw_js
-        .get_key_value("bearer_tokens")
-        .await
-        .expect("bearer_tokens bucket exists");
-    let legacy_key = br_core_auth::bearer_token_key(RAW_TOKEN);
-    let legacy_entry = legacy
-        .get(&legacy_key)
-        .await
-        .expect("legacy bucket get must not error");
-    assert!(
-        legacy_entry.is_none(),
-        "the sealed bearer must NOT be written to the legacy bearer_tokens bucket"
     );
 
     let sealed: SealedBearer =
@@ -192,13 +164,7 @@ async fn bearer_sealed_in_published_language_resolves() {
 
 #[tokio::test]
 async fn unresolved_bearer_is_rejected() {
-    let nats = FabricTestNats::start()
-        .await
-        .with_published_language()
-        .await
-        .with_bearer_tokens()
-        .await;
-    declare_legacy_refresh_buckets(&nats.url()).await;
+    let nats = provisioned_nats().await;
 
     let port = free_port();
     let base_url = format!("http://127.0.0.1:{port}");

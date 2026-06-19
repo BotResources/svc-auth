@@ -6,7 +6,7 @@ cd "$REPO_ROOT"
 
 if ! command -v nats-server > /dev/null 2>&1; then
     echo "==> ERROR: nats-server not found on PATH."
-    echo "    The e2e suite spawns its own nats-server (br_test_harness::SpawnedNats)."
+    echo "    The e2e suite spawns its own nats-server (br_test_harness::FabricTestNats)."
     echo "    Install it: https://github.com/nats-io/nats-server/releases"
     exit 1
 fi

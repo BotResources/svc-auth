@@ -25,10 +25,8 @@ See [`values.yaml`](values.yaml) for all defaults and [`values-local.yaml`](valu
 This chart assumes the following exist before deployment — per the "infrastructure declared, not imperative" principle, the chart does not create them:
 
 - **NATS** — reachable at `nats.url`, JetStream enabled.
-- **NATS KV buckets** — owned by svc-auth itself at runtime, auto-created at startup from the existing JetStream:
-  - `auth_refresh_tokens` — TTL = refresh token lifetime.
-  - `auth_revoked_families` — TTL = refresh token lifetime.
-- **NATS KV `bearer_tokens` bucket** — owned by the consuming project (e.g. the identity service). The chart does not validate its existence; svc-auth fails open to anonymous on unreachable bucket.
+- **NATS KV `EPHEMERAL_AUTH` bucket** — declared out of band (GitOps), with its TTL `max_age` aligned to the refresh-token lifetime. svc-auth *binds* it at boot (refresh tokens under the `refresh.` key prefix, revoked families under the `revoked.` key prefix) and **fails the boot** if it is absent — it never auto-creates the bucket.
+- **NATS KV `PUBLISHED_LANGUAGE` bucket** — declared out of band; svc-auth binds it read-only for sealed bearer lookup (`identity/bearer_tokens/` key prefix) and **fails the boot** if it is absent. An unresolved bearer is rejected `401` (fail-closed).
 - **Kubernetes Secret** with the JWT signing key (default name `br-svc-auth-jwt`, key `secret`). The chart reads it via `secretKeyRef`, never generates it.
 
 ## Required values

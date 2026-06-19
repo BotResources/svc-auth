@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 1.0.2
+
+### Security
+
+- **Refresh-token reuse detection is now symmetric across both rotation paths.**
+  `/auth/check`'s silent refresh (`AUTH_CHECK_SILENT_REFRESH=true`) previously
+  swallowed a CAS conflict on `mark_used` and cleared cookies **without revoking
+  the family**, leaving a reused family active with two live tokens — asymmetric
+  with `/auth/refresh`. Both handlers now route rotation through a single
+  `rotation::rotate` primitive: reuse — a `used_at` replay **or** a concurrent
+  CAS conflict — revokes the whole token family in exactly one place. A
+  non-CAS error from `mark_used` fails the rotation closed on both paths (no
+  cookies handed out; the old token stays replayable for a safe retry).
+
+### Changed
+
+- **The two ad-hoc refresh KV buckets are collapsed into the single fabric
+  `EPHEMERAL_AUTH` bucket.** `auth_refresh_tokens` and `auth_revoked_families`
+  no longer exist; refresh tokens are stored under the `refresh.` key prefix and
+  revoked families under the `revoked.` key prefix in the one `EPHEMERAL_AUTH`
+  bucket. This brings svc-auth onto the two sanctioned fabric KV buckets
+  (`EPHEMERAL_AUTH`, `PUBLISHED_LANGUAGE`) and away from caller-named buckets.
+- **All direct `async_nats` usage is removed** — every NATS access (refresh
+  store and bearer reader) now goes through `br-util-nats-fabric`. The boot no
+  longer opens its own `async_nats` connection / JetStream context; the single
+  `Fabric` connection serves both the bearer reader and the refresh store.
+- **Refresh-token rotation is now compare-and-swap through the fabric.**
+  `mark_used` reads the current revision (`get_with_revision`) and rotates with
+  `update_if`; a lost CAS race surfaces as a precise reuse verdict
+  (`401 token_reuse_detected`, family revoked), never a last-write-wins
+  overwrite.
+- The `EPHEMERAL_AUTH` bucket replaces `auth_refresh_tokens` /
+  `auth_revoked_families` in the boot bind-list; an absent `EPHEMERAL_AUTH` fails
+  the boot (bind-only, fail-loud — never auto-created).
+- **The e2e suite is now free of direct `async_nats`.** Tests provision NATS KV
+  through the harness `FabricTestNats` (`with_published_language()` +
+  `with_ephemeral_auth()`) and assert the exact live bucket inventory via
+  `assert_only_kv_buckets`; `async-nats` is dropped from `[dev-dependencies]`.
+
 ## 1.0.1
 
 ### Security

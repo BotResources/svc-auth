@@ -13,8 +13,9 @@ pub async fn logout_handler(State(state): State<AppState>, headers: HeaderMap) -
         && let Ok(claims) = state.jwt.verify_refresh_token(token_jwt)
         && let Ok(jti) = uuid::Uuid::parse_str(&claims.jti)
         && let Ok(Some((row, _revision))) = state.refresh_store.find_by_id(jti).await
+        && let Err(e) = state.refresh_store.revoke_family(row.family_id).await
     {
-        let _ = state.refresh_store.revoke_family(row.family_id).await;
+        tracing::error!(error = %e, family_id = %row.family_id, "family revocation failed during logout");
     }
 
     let clear_access = build_clear_access_cookie(&state.cookie_config);
