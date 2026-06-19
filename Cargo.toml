@@ -9,7 +9,7 @@ resolver = "3"
 [package]
 name = "svc-auth"
 description = "Portable, infra-light authentication gatekeeper: multi-provider OIDC id_token to internal JWT (HttpOnly cookies), refresh-token rotation with reuse detection, and bearer-token validation over NATS KV (no database)."
-version = "0.5.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
