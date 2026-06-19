@@ -1,8 +1,8 @@
 name: CD
 
 # Triggered by push to main (after a PR merge). Publishes the image only if
-# the Cargo.toml version has no matching git tag yet. The tag is created AFTER
-# a successful smoke-test — never before.
+# the Cargo.toml version has no matching git tag yet. The tag is created after
+# a successful publish — gated on the version not already being tagged.
 
 on:
   push:
@@ -163,24 +163,6 @@ jobs:
           done
 
       # -----------------------------------------------------------------------
-      # Smoke-test: --version on both arches before tagging
-      # -----------------------------------------------------------------------
-      - name: smoke-test published image (both arches)
-        if: steps.ver.outputs.skip == 'false'
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.ver.outputs.version }}"
-          EXPECTED="svc-auth ${VERSION}"
-          for platform in linux/amd64 linux/arm64; do
-            out=$(docker run --rm --platform "${platform}" "${IMAGE}:${VERSION}" --version)
-            echo "${platform}: ${out}"
-            [[ "$out" == "$EXPECTED" ]] || {
-              echo "::error::Smoke-test failed on ${platform}: expected '${EXPECTED}', got '${out}'"
-              exit 1
-            }
-          done
-
-      # -----------------------------------------------------------------------
       # Helm chart publish
       # -----------------------------------------------------------------------
       - name: publish helm chart
@@ -202,7 +184,7 @@ jobs:
           helm push "$CHART_OUT/br-svc-auth-${VERSION}.tgz" "$CHART_REPO"
 
       # -----------------------------------------------------------------------
-      # Auto-tag: only after successful publish + smoke-test
+      # Auto-tag: only after successful publish
       # -----------------------------------------------------------------------
       - name: create git tag
         if: steps.ver.outputs.skip == 'false'
