@@ -10,6 +10,7 @@ use crate::cookie::{
     extract_session_cookie,
 };
 use crate::jwt::JwtError;
+use crate::rotation::{RotationError, rotate};
 
 pub async fn auth_check_handler(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let existing_session = extract_session_cookie(&headers, &state.cookie_config);
@@ -99,15 +100,6 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
         return clear_cookies_response(state);
     }
 
-    if token_row.used_at.is_some() {
-        tracing::warn!(
-            family_id = %token_row.family_id,
-            "auth_check: refresh token reuse detected, revoking family"
-        );
-        let _ = state.refresh_store.revoke_family(token_row.family_id).await;
-        return clear_cookies_response(state);
-    }
-
     let email = &claims.sub;
     let new_access = match state.jwt.sign_access_token(email) {
         Ok(t) => t,
@@ -134,18 +126,16 @@ async fn silent_refresh(state: &AppState, headers: &HeaderMap) -> Response {
         created_at: chrono::Utc::now(),
     };
 
-    if let Err(e) = state.refresh_store.store(&new_token).await {
-        tracing::error!(error = %e, "auth_check: failed to store new refresh token");
-        return clear_cookies_response(state);
-    }
-
-    if let Err(e) = state
-        .refresh_store
-        .mark_used(jti, new_token_id, revision)
-        .await
-    {
-        tracing::error!(error = %e, "auth_check: failed to mark old refresh token as used");
-        return clear_cookies_response(state);
+    match rotate(&state.refresh_store, &token_row, revision, &new_token).await {
+        Ok(()) => {}
+        Err(RotationError::Reuse(family_id)) => {
+            tracing::warn!(%family_id, "auth_check: token reuse detected, family revoked");
+            return clear_cookies_response(state);
+        }
+        Err(RotationError::Store(e)) => {
+            tracing::error!(error = %e, "auth_check: silent refresh rotation failed");
+            return clear_cookies_response(state);
+        }
     }
 
     tracing::debug!(email = %email, "auth_check: silent refresh successful");

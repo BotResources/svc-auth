@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_nats::jetstream;
 use br_core_auth::session_cookie_name;
+use br_test_harness::FabricTestNats;
+use br_test_harness::SpawnedProcess;
 use br_test_harness::oidc::state::{MintRequest, RotateRequest};
 use br_test_harness::oidc::{IdpConfig, IdpState, router};
-use br_test_harness::{SpawnedNats, SpawnedProcess, recreate_kv};
 use reqwest::Client;
 use serde_json::Value;
 
@@ -18,13 +18,34 @@ const PROVIDER_A_CLIENT: &str = "e2e-client";
 const PROVIDER_B_CLIENT: &str = "e2e-client-b";
 
 const PUBLISHED_LANGUAGE_BUCKET: &str = "PUBLISHED_LANGUAGE";
+const EPHEMERAL_AUTH_BUCKET: &str = "EPHEMERAL_AUTH";
 const SEAL_KEY_B64: &str = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
 
-const REQUIRED_BUCKETS: &[&str] = &[
-    PUBLISHED_LANGUAGE_BUCKET,
-    "auth_refresh_tokens",
-    "auth_revoked_families",
-];
+const APPROVED_BUCKETS: &[&str] = &[EPHEMERAL_AUTH_BUCKET, PUBLISHED_LANGUAGE_BUCKET];
+
+#[derive(Clone, Copy)]
+struct Buckets {
+    published_language: bool,
+    ephemeral_auth: bool,
+}
+
+impl Buckets {
+    const FULL: Self = Self {
+        published_language: true,
+        ephemeral_auth: true,
+    };
+}
+
+async fn provision(buckets: Buckets) -> FabricTestNats {
+    let mut nats = FabricTestNats::start().await;
+    if buckets.published_language {
+        nats = nats.with_published_language().await;
+    }
+    if buckets.ephemeral_auth {
+        nats = nats.with_ephemeral_auth().await;
+    }
+    nats
+}
 
 struct Idp {
     issuer: String,
@@ -32,9 +53,6 @@ struct Idp {
 }
 
 impl Idp {
-    // Bind a 127.0.0.1:0 listener FIRST so the issuer can be the IdP's real
-    // serving URL — svc-auth resolves jwks_uri from the discovery document
-    // ({issuer}/jwks) and fetches it, so the issuer must be reachable.
     async fn start(client_id: &str) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -76,28 +94,23 @@ impl Idp {
 
 struct TestContext {
     base_url: String,
-    nats: Option<SpawnedNats>,
+    nats: Option<FabricTestNats>,
     svc: Option<SpawnedProcess>,
     idp_a: Idp,
     idp_b: Idp,
 }
 
 impl TestContext {
-    // Bring up two in-process OIDC IdPs, real SpawnedNats with the three KV
-    // buckets DECLARED (svc-auth binds, never creates — a missing bucket keeps
-    // readiness DOWN or fails the boot), then spawn the real svc-auth binary
-    // wired to all of them. `buckets` selects which buckets exist before boot.
-    async fn start(buckets: &[&str]) -> Self {
+    async fn start(buckets: Buckets, silent_refresh: bool) -> Self {
         let idp_a = Idp::start(PROVIDER_A_CLIENT).await;
         let idp_b = Idp::start(PROVIDER_B_CLIENT).await;
 
-        let nats = SpawnedNats::start().await;
-        declare_buckets(&nats.url(), buckets).await;
+        let nats = provision(buckets).await;
 
         let port = free_port();
         let base_url = format!("http://127.0.0.1:{port}");
 
-        let envs = spawn_envs(port, &nats.url(), &idp_a, &idp_b);
+        let envs = spawn_envs(port, &nats.url(), &idp_a, &idp_b, silent_refresh);
         let env_refs: Vec<(&str, &str)> =
             envs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
@@ -117,7 +130,11 @@ impl TestContext {
     }
 
     async fn full() -> Self {
-        Self::start(REQUIRED_BUCKETS).await
+        Self::start(Buckets::FULL, false).await
+    }
+
+    async fn full_silent_refresh() -> Self {
+        Self::start(Buckets::FULL, true).await
     }
 
     async fn ready(&self) -> bool {
@@ -138,8 +155,6 @@ impl TestContext {
     }
 }
 
-// svc-auth binds 0.0.0.0:PORT; a per-test free port keeps concurrently-running
-// scenarios from colliding (passed explicitly via the spawn env).
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -148,7 +163,13 @@ fn free_port() -> u16 {
         .port()
 }
 
-fn spawn_envs(port: u16, nats_url: &str, idp_a: &Idp, idp_b: &Idp) -> Vec<(String, String)> {
+fn spawn_envs(
+    port: u16,
+    nats_url: &str,
+    idp_a: &Idp,
+    idp_b: &Idp,
+    silent_refresh: bool,
+) -> Vec<(String, String)> {
     vec![
         ("PORT".into(), port.to_string()),
         ("NATS_URL".into(), nats_url.to_string()),
@@ -156,7 +177,10 @@ fn spawn_envs(port: u16, nats_url: &str, idp_a: &Idp, idp_b: &Idp) -> Vec<(Strin
         ("JWT_ISSUER".into(), JWT_ISSUER.into()),
         ("ENVIRONMENT".into(), "test".into()),
         ("SECURE_COOKIES".into(), "false".into()),
-        ("AUTH_CHECK_SILENT_REFRESH".into(), "false".into()),
+        (
+            "AUTH_CHECK_SILENT_REFRESH".into(),
+            silent_refresh.to_string(),
+        ),
         ("BEARER_SEAL_KEY".into(), SEAL_KEY_B64.into()),
         ("JWKS_REFRESH_COOLDOWN_SECONDS".into(), "1".into()),
         ("OIDC_E2EA_DISCOVERY_URL".into(), idp_a.issuer.clone()),
@@ -165,16 +189,6 @@ fn spawn_envs(port: u16, nats_url: &str, idp_a: &Idp, idp_b: &Idp) -> Vec<(Strin
         ("OIDC_E2EB_CLIENT_ID".into(), PROVIDER_B_CLIENT.into()),
         ("OIDC_E2EB_EMAIL_CLAIM".into(), "preferred_username".into()),
     ]
-}
-
-async fn declare_buckets(nats_url: &str, buckets: &[&str]) {
-    let client = br_test_harness::nats::connect(nats_url)
-        .await
-        .expect("connect to SpawnedNats");
-    let js = jetstream::new(client);
-    for bucket in buckets {
-        recreate_kv(&js, bucket).await;
-    }
 }
 
 fn redirectless() -> Client {
@@ -208,9 +222,6 @@ fn cookie_value(resp: &reqwest::Response, name: &str) -> Option<String> {
         .find(|v| !v.is_empty())
 }
 
-// The internal HS256 JWT minting stays bespoke — there is no harness equivalent
-// for svc-auth's own access/refresh tokens (the harness OIDC fixture mints
-// RS256 id_tokens, a different credential).
 fn mint_internal_jwt(email: &str, refresh: bool, expired: bool) -> String {
     use jsonwebtoken::{EncodingKey, Header};
     let now = chrono::Utc::now().timestamp();
@@ -258,24 +269,17 @@ fn mint_req(email: &str) -> MintRequest {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Probes & readiness
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn livez_returns_200() {
-    // Given a fully-provisioned svc-auth
     let ctx = TestContext::full().await;
     let client = Client::new();
 
-    // When /livez is probed
     let resp = client
         .get(format!("{}/livez", ctx.base_url))
         .send()
         .await
         .unwrap();
 
-    // Then it is alive
     assert_eq!(resp.status(), 200);
     assert_eq!(resp.text().await.unwrap(), "alive");
 
@@ -284,18 +288,15 @@ async fn livez_returns_200() {
 
 #[tokio::test]
 async fn readyz_returns_200_when_all_buckets_present() {
-    // Given svc-auth booted with all three KV buckets declared
     let ctx = TestContext::full().await;
     let client = Client::new();
 
-    // When /readyz is probed
     let resp = client
         .get(format!("{}/readyz", ctx.base_url))
         .send()
         .await
         .unwrap();
 
-    // Then it is ready
     assert_eq!(resp.status(), 200);
     assert_eq!(resp.text().await.unwrap(), "ready");
 
@@ -319,20 +320,14 @@ async fn metrics_exposes_prometheus_exposition() {
     ctx.shutdown().await;
 }
 
-#[tokio::test]
-async fn published_language_bucket_absent_fails_boot() {
+async fn assert_boot_fails(buckets: Buckets, absent: &str) {
     let idp_a = Idp::start(PROVIDER_A_CLIENT).await;
     let idp_b = Idp::start(PROVIDER_B_CLIENT).await;
-    let nats = SpawnedNats::start().await;
-    declare_buckets(
-        &nats.url(),
-        &["auth_refresh_tokens", "auth_revoked_families"],
-    )
-    .await;
+    let nats = provision(buckets).await;
 
     let port = free_port();
     let base_url = format!("http://127.0.0.1:{port}");
-    let envs = spawn_envs(port, &nats.url(), &idp_a, &idp_b);
+    let envs = spawn_envs(port, &nats.url(), &idp_a, &idp_b, false);
     let env_refs: Vec<(&str, &str)> = envs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     let mut svc = SpawnedProcess::spawn(SVC_AUTH_BIN, &[], &env_refs);
 
@@ -340,16 +335,169 @@ async fn published_language_bucket_absent_fails_boot() {
         .await_boot(&format!("{base_url}/livez"), BOOT_TIMEOUT)
         .await;
 
-    let status = outcome.exit_status().unwrap_or_else(|| {
-        panic!("svc-auth must EXIT when PUBLISHED_LANGUAGE is absent, got {outcome:?}")
-    });
+    let status = outcome
+        .exit_status()
+        .unwrap_or_else(|| panic!("svc-auth must EXIT when {absent} is absent, got {outcome:?}"));
     assert!(
         !status.success(),
-        "svc-auth must exit non-zero when PUBLISHED_LANGUAGE is absent, got {status}"
+        "svc-auth must exit non-zero when {absent} is absent, got {status}"
     );
 
     svc.shutdown().await;
     nats.shutdown().await;
+}
+
+#[tokio::test]
+async fn published_language_bucket_absent_fails_boot() {
+    assert_boot_fails(
+        Buckets {
+            published_language: false,
+            ephemeral_auth: true,
+        },
+        PUBLISHED_LANGUAGE_BUCKET,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn ephemeral_auth_bucket_absent_fails_boot() {
+    assert_boot_fails(
+        Buckets {
+            published_language: true,
+            ephemeral_auth: false,
+        },
+        EPHEMERAL_AUTH_BUCKET,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn only_approved_buckets_exist() {
+    let ctx = TestContext::full().await;
+    assert!(ctx.ready().await, "precondition: svc-auth must be ready");
+    let client = Client::new();
+
+    let id_token = ctx.idp_a.mint(&mint_req("lifecycle@example.com"));
+    let login = post_auth_token(&client, &ctx.base_url, &id_token).await;
+    assert_eq!(login.status(), 200, "id_token login must open a session");
+    let refresh = cookie_value(&login, "refresh_token").expect("refresh_token cookie");
+
+    let rotated = client
+        .post(format!("{}/auth/refresh", ctx.base_url))
+        .header("cookie", format!("refresh_token={refresh}"))
+        .header("content-type", "application/json")
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rotated.status(), 200, "refresh must rotate");
+    let rotated_refresh = cookie_value(&rotated, "refresh_token").expect("rotated refresh cookie");
+    assert_ne!(rotated_refresh, refresh, "refresh token must rotate");
+
+    let reuse = client
+        .post(format!("{}/auth/refresh", ctx.base_url))
+        .header("cookie", format!("refresh_token={refresh}"))
+        .header("content-type", "application/json")
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        reuse.status(),
+        401,
+        "reusing the rotated token must be rejected"
+    );
+
+    let logout = client
+        .post(format!("{}/auth/logout", ctx.base_url))
+        .header("cookie", format!("refresh_token={rotated_refresh}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(logout.status(), 200, "logout must succeed");
+
+    ctx.nats
+        .as_ref()
+        .expect("nats up")
+        .assert_only_kv_buckets(APPROVED_BUCKETS)
+        .await;
+
+    ctx.shutdown().await;
+}
+
+#[tokio::test]
+async fn silent_refresh_concurrent_reuse_revokes_family() {
+    let ctx = TestContext::full_silent_refresh().await;
+    assert!(ctx.ready().await, "precondition: svc-auth must be ready");
+    let client = Client::new();
+
+    let id_token = ctx.idp_a.mint(&mint_req("silent-race@example.com"));
+    let login = post_auth_token(&client, &ctx.base_url, &id_token).await;
+    assert_eq!(login.status(), 200, "id_token login must open a session");
+    let refresh = cookie_value(&login, "refresh_token").expect("refresh_token cookie");
+
+    let expired_access = mint_internal_jwt("silent-race@example.com", false, true);
+    let cookie = format!("access_token={expired_access}; refresh_token={refresh}");
+
+    let fire = || {
+        let client = &client;
+        let base = &ctx.base_url;
+        let cookie = cookie.clone();
+        async move {
+            client
+                .get(format!("{base}/auth/check"))
+                .header("cookie", cookie)
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+
+    let (first, second) = tokio::join!(fire(), fire());
+    assert_eq!(
+        first.status(),
+        200,
+        "silent refresh responds 200 either way"
+    );
+    assert_eq!(
+        second.status(),
+        200,
+        "silent refresh responds 200 either way"
+    );
+
+    let later = client
+        .post(format!("{}/auth/refresh", ctx.base_url))
+        .header("cookie", format!("refresh_token={refresh}"))
+        .header("content-type", "application/json")
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        later.status(),
+        401,
+        "after two rotations of the same refresh token, the original must be dead (family revoked)"
+    );
+
+    let first_rotated = cookie_value(&first, "refresh_token");
+    let second_rotated = cookie_value(&second, "refresh_token");
+    for rotated in [first_rotated, second_rotated].into_iter().flatten() {
+        let resp = client
+            .post(format!("{}/auth/refresh", ctx.base_url))
+            .header("cookie", format!("refresh_token={rotated}"))
+            .header("content-type", "application/json")
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            401,
+            "every token from a revoked family must be dead"
+        );
+    }
+
+    ctx.shutdown().await;
 }
 
 #[tokio::test]
@@ -374,17 +522,12 @@ async fn unresolved_bearer_against_healthy_bucket_is_rejected_401() {
     ctx.shutdown().await;
 }
 
-// ---------------------------------------------------------------------------
-// /auth/check session-cookie behavior
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn auth_check_anonymous_sets_session_cookie() {
     let ctx = TestContext::full().await;
     let session_name = session_cookie_name(false);
     let client = redirectless();
 
-    // When an anonymous client calls /auth/check
     let resp = client
         .get(format!("{}/auth/check", ctx.base_url))
         .send()
@@ -393,7 +536,6 @@ async fn auth_check_anonymous_sets_session_cookie() {
     assert_eq!(resp.status(), 200);
     let cookies = set_cookies(&resp);
 
-    // Then a session cookie is set, HttpOnly, SameSite=Lax, session-scoped
     let session = cookies
         .iter()
         .find(|c| c.starts_with(&format!("{session_name}=")))
@@ -422,7 +564,6 @@ async fn auth_check_preserves_existing_session_cookie() {
     let session_name = session_cookie_name(false);
     let client = redirectless();
 
-    // When a client already carrying a session cookie calls /auth/check
     let resp = client
         .get(format!("{}/auth/check", ctx.base_url))
         .header("cookie", format!("{session_name}=existing-session-uuid"))
@@ -431,7 +572,6 @@ async fn auth_check_preserves_existing_session_cookie() {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
-    // Then no new session cookie is minted
     let cookies = set_cookies(&resp);
     assert!(
         !cookies
@@ -449,7 +589,6 @@ async fn auth_check_bearer_does_not_set_session_cookie() {
     let session_name = session_cookie_name(false);
     let client = Client::new();
 
-    // When a bearer-credential request hits /auth/check
     let resp = client
         .get(format!("{}/auth/check", ctx.base_url))
         .header("authorization", "Bearer unknown-bearer-not-in-kv")
@@ -457,7 +596,6 @@ async fn auth_check_bearer_does_not_set_session_cookie() {
         .await
         .unwrap();
 
-    // Then no session cookie is issued on the bearer path
     let cookies = set_cookies(&resp);
     assert!(
         !cookies
@@ -476,7 +614,6 @@ async fn auth_check_valid_jwt_cookie_sets_session_when_missing() {
     let client = Client::new();
     let token = mint_internal_jwt("alice@example.com", false, false);
 
-    // When a valid JWT cookie arrives without a session cookie
     let resp = client
         .get(format!("{}/auth/check", ctx.base_url))
         .header("cookie", format!("access_token={token}"))
@@ -484,7 +621,6 @@ async fn auth_check_valid_jwt_cookie_sets_session_when_missing() {
         .await
         .unwrap();
 
-    // Then 200, and a session cookie is minted
     assert_eq!(resp.status(), 200, "valid JWT cookie must pass /auth/check");
     let cookies = set_cookies(&resp);
     assert!(
@@ -499,12 +635,10 @@ async fn auth_check_valid_jwt_cookie_sets_session_when_missing() {
 
 #[tokio::test]
 async fn auth_check_expired_jwt_cookie_returns_401() {
-    // Given AUTH_CHECK_SILENT_REFRESH=false
     let ctx = TestContext::full().await;
     let client = Client::new();
     let token = mint_internal_jwt("alice@example.com", false, true);
 
-    // When an expired JWT cookie hits /auth/check
     let resp = client
         .get(format!("{}/auth/check", ctx.base_url))
         .header("cookie", format!("access_token={token}"))
@@ -512,7 +646,6 @@ async fn auth_check_expired_jwt_cookie_returns_401() {
         .await
         .unwrap();
 
-    // Then 401 (no silent refresh)
     assert_eq!(
         resp.status(),
         401,
@@ -561,10 +694,6 @@ async fn auth_check_valid_jwt_cookie_returns_200() {
 
     ctx.shutdown().await;
 }
-
-// ---------------------------------------------------------------------------
-// /auth/logout and /auth/refresh session behavior
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn logout_does_not_clear_session_cookie() {
@@ -674,7 +803,6 @@ async fn refresh_expired_token_returns_401_clearing_cookies() {
 async fn refresh_unknown_token_returns_401_clearing_cookies() {
     let ctx = TestContext::full().await;
     let client = Client::new();
-    // A well-signed but never-stored refresh token (jti not in KV).
     let unknown = mint_internal_jwt("bob@example.com", true, false);
 
     let resp = client
@@ -703,18 +831,12 @@ async fn refresh_unknown_token_returns_401_clearing_cookies() {
     ctx.shutdown().await;
 }
 
-// ---------------------------------------------------------------------------
-// OIDC id_token exchange (via the in-process IdP fixture)
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn oidc_valid_id_token_opens_a_rotating_cookie_session() {
-    // Given a verified id_token from provider A
     let ctx = TestContext::full().await;
     let client = Client::new();
     let id_token = ctx.idp_a.mint(&mint_req("carol@example.com"));
 
-    // When it is exchanged at /auth/token
     let resp = post_auth_token(&client, &ctx.base_url, &id_token).await;
     assert_eq!(
         resp.status(),
@@ -724,7 +846,6 @@ async fn oidc_valid_id_token_opens_a_rotating_cookie_session() {
     let access = cookie_value(&resp, "access_token").expect("access_token cookie");
     let refresh = cookie_value(&resp, "refresh_token").expect("refresh_token cookie");
 
-    // Then the issued access token passes /auth/check
     let check = client
         .get(format!("{}/auth/check", ctx.base_url))
         .header("cookie", format!("access_token={access}"))
@@ -737,7 +858,6 @@ async fn oidc_valid_id_token_opens_a_rotating_cookie_session() {
         "OIDC-issued access token must pass /auth/check"
     );
 
-    // And the refresh token rotates (new value, not a repeat)
     let rotated = client
         .post(format!("{}/auth/refresh", ctx.base_url))
         .header("cookie", format!("refresh_token={refresh}"))
@@ -762,12 +882,9 @@ async fn oidc_valid_id_token_opens_a_rotating_cookie_session() {
 
 #[tokio::test]
 async fn oidc_kid_miss_triggers_a_jwks_refresh() {
-    // Given a token signed with a freshly rotated (initially-unknown) key
     let ctx = TestContext::full().await;
     let client = Client::new();
 
-    // svc-auth stamps last_refresh at boot (discovery); wait out the 1s cooldown
-    // so the kid-miss is actually allowed to re-fetch rather than being suppressed.
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let before = ctx.idp_a.jwks_fetches();
     let new_kid = ctx.idp_a.rotate();
@@ -776,7 +893,6 @@ async fn oidc_kid_miss_triggers_a_jwks_refresh() {
         ..mint_req("dave@example.com")
     });
 
-    // When it is exchanged, svc-auth misses the kid and re-fetches the JWKS
     let resp = post_auth_token(&client, &ctx.base_url, &id_token).await;
     assert_eq!(
         resp.status(),
@@ -784,7 +900,6 @@ async fn oidc_kid_miss_triggers_a_jwks_refresh() {
         "a token from a rotated key must verify after JWKS refresh"
     );
 
-    // Then a JWKS re-fetch is observable on the IdP
     let after = ctx.idp_a.jwks_fetches();
     assert!(
         after > before,
@@ -796,7 +911,6 @@ async fn oidc_kid_miss_triggers_a_jwks_refresh() {
 
 #[tokio::test]
 async fn oidc_unknown_key_rejected_with_refetch_cooldown() {
-    // Given provider B and a cooldown of 1s (env JWKS_REFRESH_COOLDOWN_SECONDS)
     let ctx = TestContext::full().await;
     let client = Client::new();
     let cooldown = Duration::from_millis(2500);
@@ -813,9 +927,6 @@ async fn oidc_unknown_key_rejected_with_refetch_cooldown() {
     tokio::time::sleep(cooldown).await;
     let before = ctx.idp_b.jwks_fetches();
 
-    // When an unknown signing key is presented the first time, exactly one re-fetch fires.
-    // e2e-key-1 / e2e-key-2 exist in the pool but are never published, so they sign a
-    // token whose kid svc-auth has never cached — the kid-miss the test is about.
     let t1 = unknown_key_token(&ctx, "e2e-key-1");
     assert_eq!(
         post_auth_token(&client, &ctx.base_url, &t1).await.status(),
@@ -828,7 +939,6 @@ async fn oidc_unknown_key_rejected_with_refetch_cooldown() {
         "first unknown kid must trigger exactly one re-fetch"
     );
 
-    // Within the cooldown a second unknown kid does NOT re-fetch
     let t2 = unknown_key_token(&ctx, "e2e-key-2");
     assert_eq!(
         post_auth_token(&client, &ctx.base_url, &t2).await.status(),
@@ -840,7 +950,6 @@ async fn oidc_unknown_key_rejected_with_refetch_cooldown() {
         "within the cooldown the JWKS must not be re-fetched"
     );
 
-    // After the cooldown a re-fetch is allowed again
     tokio::time::sleep(cooldown).await;
     let t3 = unknown_key_token(&ctx, "e2e-key-1");
     assert_eq!(
@@ -861,7 +970,6 @@ async fn oidc_multi_provider_routing_by_issuer() {
     let ctx = TestContext::full().await;
     let client = Client::new();
 
-    // Provider B is routed by its iss and verified
     let b_token = ctx.idp_b.mint(&MintRequest {
         aud: Some(PROVIDER_B_CLIENT.to_string()),
         email_claim: Some("preferred_username".to_string()),
@@ -875,7 +983,6 @@ async fn oidc_multi_provider_routing_by_issuer() {
         "provider B's id_token must be routed by iss and verified"
     );
 
-    // A token bearing an unconfigured issuer is rejected
     let mut alien_claims = serde_json::Map::new();
     alien_claims.insert(
         "iss".into(),

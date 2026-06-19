@@ -53,8 +53,10 @@ OIDC providers are auto-detected at startup by scanning for `OIDC_*_DISCOVERY_UR
 
 ## Architecture
 
-- **NATS KV** for refresh token storage (raw `async_nats`) and sealed bearer
-  resolution from `PUBLISHED_LANGUAGE` via the `br-util-nats-fabric` Fabric (no database)
+- **NATS KV via the `br-util-nats-fabric` Fabric** (no database, no direct
+  `async_nats`): refresh tokens and revoked families in the `EPHEMERAL_AUTH`
+  bucket (compare-and-swap rotation; `refresh.` / `revoked.` key prefixes), and
+  sealed bearer resolution from the `PUBLISHED_LANGUAGE` bucket
 - **Multi-provider OIDC** with auto-discovery, per-provider JWKS cache, refresh on unknown `kid` (cooldown-gated, `JWKS_REFRESH_COOLDOWN_SECONDS`)
 - **Token rotation** with family-based revocation (reuse detection)
 - **HttpOnly cookies** with `__Host-` prefix in production
@@ -78,8 +80,9 @@ OIDC providers are auto-detected at startup by scanning for `OIDC_*_DISCOVERY_UR
 | `JWKS_REFRESH_COOLDOWN_SECONDS` floored at 1s (`JWKS_REFRESH_COOLDOWN_FLOOR_SECS`) | An unknown `kid` triggers a JWKS re-fetch. A cooldown of 0 would let a stream of invalid tokens (each with a bogus `kid`) hammer the IdP's JWKS endpoint — a self-inflicted DoS amplifier. The floor keeps storm protection always on. |
 | `Environment::parse` rejects unknown values | Auth fails closed: an unrecognised `ENVIRONMENT` (a typo, or a new env nobody wired up) must abort at boot, never silently degrade to the most-permissive `Local` mode. |
 | Routing id_tokens on the **unverified** `iss` (`decode_jwt_payload_unverified`) | The issuer is only used to *select* the provider; the signature, issuer, and audience are then verified against that provider's JWKS and config. Picking the wrong provider on a forged `iss` cannot succeed — verification still fails. |
-| Refresh rotation stores the new token **before** marking the old one used | If the order were reversed, a crash between the two writes would invalidate the old token with no replacement persisted — silently logging the user out. Store-then-mark keeps a valid token reachable at every point. |
-| `mark_used` takes the KV `revision` (CAS) | Two concurrent refreshes of the same token must not both succeed: the compare-and-swap on the revision makes the second writer fail — a lost-update guard on rotation (distinct from the `used_at` replay check, which is the actual reuse-detection). |
+| Refresh rotation stores the new token **before** marking the old one used | If the order were reversed, a crash between the two writes would invalidate the old token with no replacement persisted — silently logging the user out. Store-then-mark keeps a valid token reachable at every point. A non-CAS error from `mark_used` (e.g. transient KV failure) fails the whole rotation closed (no cookies set on either path); the orphaned new token is never handed to the client, the old token stays `unused`, so the client safely retries against a still-replayable old token. |
+| Both rotation paths (`/auth/refresh` and silent `/auth/check`) go through the single `rotation::rotate` primitive | Reuse — whether a `used_at` replay or a concurrent CAS conflict — revokes the whole token family in exactly one place, so the two HTTP handlers cannot diverge on the security invariant; they differ only in response shape (401 error JSON vs cookie-clear). On a CAS conflict the new token has already been written, but it carries the now-revoked `family_id`, so it is inert. A failed `revoke_family` is logged (never silently dropped) so a stuck revocation is observable. |
+| `mark_used` takes the KV `revision` (CAS) | Two concurrent refreshes of the same token must not both succeed: the compare-and-swap on the revision makes the second writer fail — a lost-update guard on rotation (distinct from the `used_at` replay check, which is the actual reuse-detection). Both the CAS conflict and the `used_at` replay revoke the family. |
 | `/auth/token` and `/auth/refresh` return only metadata; the access/refresh tokens go in `Set-Cookie` | Credentials are never placed in a response body that a client (or a log) could read back — they ride HttpOnly cookies only. |
 
 ## Kubernetes deployment

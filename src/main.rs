@@ -48,19 +48,6 @@ async fn main() {
         }
     };
 
-    let nats_client = match async_nats::connect(&config.nats_url).await {
-        Ok(c) => {
-            tracing::info!("NATS connected");
-            c
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "failed to connect to NATS");
-            std::process::exit(1);
-        }
-    };
-
-    let jetstream = async_nats::jetstream::new(nats_client);
-
     let fabric = match Fabric::connect(&config.nats_url).await {
         Ok(f) => f,
         Err(e) => {
@@ -78,23 +65,14 @@ async fn main() {
     };
     tracing::info!("PUBLISHED_LANGUAGE bearer reader bound");
 
-    let refresh_tokens_kv = jetstream
-        .get_key_value("auth_refresh_tokens")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::error!(error = %e, "NATS KV auth_refresh_tokens absent (declared bucket missing)");
+    let refresh_store = match RefreshTokenStore::open(&fabric).await {
+        Ok(s) => Arc::new(s),
+        Err(e) => {
+            tracing::error!(error = %e, "EPHEMERAL_AUTH store bind failed (declared bucket missing)");
             std::process::exit(1);
-        });
-
-    let revoked_families_kv = jetstream
-        .get_key_value("auth_revoked_families")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::error!(error = %e, "NATS KV auth_revoked_families absent (declared bucket missing)");
-            std::process::exit(1);
-        });
-
-    tracing::info!("NATS KV buckets bound (refresh_tokens, revoked_families)");
+        }
+    };
+    tracing::info!("EPHEMERAL_AUTH refresh-token store bound");
 
     let jwt = Arc::new(JwtService::new(
         &config.jwt_secret,
@@ -122,11 +100,6 @@ async fn main() {
         config.refresh_token_ttl,
         config.access_token_ttl,
     );
-
-    let refresh_store = Arc::new(RefreshTokenStore::new(
-        refresh_tokens_kv,
-        revoked_families_kv,
-    ));
 
     let state = AppState {
         jwt,

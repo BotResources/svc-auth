@@ -13,6 +13,7 @@ use crate::cookie::{
 use crate::error::AppError;
 use crate::jwt::JwtError;
 use crate::refresh_store::RefreshToken;
+use crate::rotation::{RotationError, rotate};
 
 #[derive(Debug, Deserialize, Default)]
 pub struct RefreshRequest {
@@ -98,15 +99,6 @@ async fn handle_refresh(
         return Err(AppError::Unauthorized("token_family_revoked".into()));
     }
 
-    if token_row.used_at.is_some() {
-        tracing::warn!(
-            family_id = %token_row.family_id,
-            "refresh: token reuse detected, revoking family"
-        );
-        let _ = state.refresh_store.revoke_family(token_row.family_id).await;
-        return Err(AppError::Unauthorized("token_reuse_detected".into()));
-    }
-
     let email = &claims.sub;
     let new_access = state
         .jwt
@@ -127,17 +119,14 @@ async fn handle_refresh(
         created_at: chrono::Utc::now(),
     };
 
-    state
-        .refresh_store
-        .store(&new_token)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    state
-        .refresh_store
-        .mark_used(jti, new_token_id, revision)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    match rotate(&state.refresh_store, &token_row, revision, &new_token).await {
+        Ok(()) => {}
+        Err(RotationError::Reuse(family_id)) => {
+            tracing::warn!(%family_id, "refresh: token reuse detected, family revoked");
+            return Err(AppError::Unauthorized("token_reuse_detected".into()));
+        }
+        Err(RotationError::Store(e)) => return Err(AppError::Internal(e.to_string())),
+    }
 
     let access_ttl = state.jwt.access_ttl_secs();
 

@@ -8,6 +8,7 @@ pub mod logout;
 pub mod oidc_validator;
 pub mod refresh;
 pub mod refresh_store;
+pub mod rotation;
 pub mod token;
 
 use std::sync::Arc;
