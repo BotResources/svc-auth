@@ -29,7 +29,7 @@ Proves identity ("the human behind this request controls this email") via multi-
 |--------|------------------|--------------------------------------------------|
 | POST   | `/auth/token`    | Exchange OIDC id_token for internal JWT (cookies) |
 | POST   | `/auth/refresh`  | Rotate refresh token, get new access token        |
-| GET    | `/auth/check`    | nginx `auth_request` -- validate JWT or bearer    |
+| GET    | `/auth/check`    | nginx `auth_request` -- validate JWT cookie, or resolve a sealed bearer (`401` if unresolved) |
 | POST   | `/auth/logout`   | Revoke refresh token family, clear cookies        |
 | GET    | `/livez`         | Liveness -- always 200                             |
 | GET    | `/readyz`        | Readiness -- 200 once NATS KV buckets are reachable |
@@ -53,12 +53,18 @@ OIDC providers are auto-detected at startup by scanning for `OIDC_*_DISCOVERY_UR
 
 ## Architecture
 
-- **NATS KV** for refresh token storage and bearer token validation (no database)
+- **NATS KV** for refresh token storage (raw `async_nats`) and sealed bearer
+  resolution from `PUBLISHED_LANGUAGE` via the `br-util-nats-fabric` Fabric (no database)
 - **Multi-provider OIDC** with auto-discovery, per-provider JWKS cache, refresh on unknown `kid` (cooldown-gated, `JWKS_REFRESH_COOLDOWN_SECONDS`)
 - **Token rotation** with family-based revocation (reuse detection)
 - **HttpOnly cookies** with `__Host-` prefix in production
 - **Silent refresh** on expired access tokens via `auth_check`
-- **Bearer token validation** via SHA-256 hash lookup in NATS KV
+- **Bearer resolution** against the AEAD-sealed `br-auth-contract` wire in the
+  `PUBLISHED_LANGUAGE` bucket (`identity/bearer_tokens/` prefix, ChaCha20-Poly1305,
+  key from `BEARER_SEAL_KEY`). A resolved bearer returns `200` with the resolved
+  actor exposed via `X-Auth-User-Id` / `X-Auth-Service-Account-Id` and
+  `X-Auth-Token-Id`; an unresolved bearer fails closed with `401`. svc-auth does
+  not build a Passport — it exposes the resolved actor only.
 - **Observability from `br-rust-common`** — structured JSON logging, the `/livez`
   liveness route and the `/metrics` Prometheus endpoint via `br-util-observability`;
   the `/readyz` readiness gate (flipped UP once the NATS KV buckets are reachable

@@ -1,6 +1,6 @@
 use axum::extract::State;
 use axum::http::header::SET_COOKIE;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderName, StatusCode};
 use axum::response::{IntoResponse, Response};
 
 use crate::AppState;
@@ -173,20 +173,49 @@ async fn handle_bearer(state: &AppState, auth_value: &str) -> Response {
         auth_value
     };
 
-    match state.bearer_validator.is_valid(token).await {
-        Ok(true) => {
-            tracing::debug!("auth_check: bearer token valid");
-            StatusCode::OK.into_response()
+    match state.bearer_validator.resolve(token).await {
+        Ok(Some(entry)) => {
+            tracing::debug!("auth_check: bearer resolved from PUBLISHED_LANGUAGE");
+            resolved_bearer_response(&entry)
         }
-        Ok(false) => {
-            tracing::debug!("auth_check: bearer token unresolved, resolving anonymous");
-            StatusCode::OK.into_response()
+        Ok(None) => {
+            tracing::debug!("auth_check: bearer unresolved, rejecting");
+            StatusCode::UNAUTHORIZED.into_response()
         }
         Err(e) => {
-            tracing::error!(error = %e, "auth_check: NATS KV bearer lookup failed");
+            tracing::error!(error = %e, "auth_check: PUBLISHED_LANGUAGE bearer lookup failed");
             StatusCode::BAD_GATEWAY.into_response()
         }
     }
+}
+
+fn resolved_bearer_response(entry: &br_auth_contract::BearerEntry) -> Response {
+    let actor_header = if entry.actor.is_human() {
+        "x-auth-user-id"
+    } else {
+        "x-auth-service-account-id"
+    };
+
+    let mut response = StatusCode::OK.into_response();
+    let hdrs = response.headers_mut();
+    hdrs.insert(
+        HeaderName::from_static(actor_header),
+        entry
+            .actor
+            .id()
+            .to_string()
+            .parse()
+            .expect("uuid is valid header value"),
+    );
+    hdrs.insert(
+        HeaderName::from_static("x-auth-token-id"),
+        entry
+            .token_id
+            .to_string()
+            .parse()
+            .expect("uuid is valid header value"),
+    );
+    response
 }
 
 fn clear_cookies_response(state: &AppState) -> Response {

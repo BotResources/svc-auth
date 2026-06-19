@@ -2552,14 +2552,18 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "svc-auth"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "async-nats",
  "axum",
  "base64",
+ "br-auth-contract",
+ "br-auth-identity-util",
  "br-core-auth",
+ "br-core-kernel",
  "br-test-harness",
  "br-util-axum-readiness",
+ "br-util-nats-fabric",
  "br-util-observability",
  "chrono",
  "dotenvy",

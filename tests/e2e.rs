@@ -17,8 +17,11 @@ const JWT_ISSUER: &str = "svc-auth";
 const PROVIDER_A_CLIENT: &str = "e2e-client";
 const PROVIDER_B_CLIENT: &str = "e2e-client-b";
 
+const PUBLISHED_LANGUAGE_BUCKET: &str = "PUBLISHED_LANGUAGE";
+const SEAL_KEY_B64: &str = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
+
 const REQUIRED_BUCKETS: &[&str] = &[
-    "bearer_tokens",
+    PUBLISHED_LANGUAGE_BUCKET,
     "auth_refresh_tokens",
     "auth_revoked_families",
 ];
@@ -154,6 +157,7 @@ fn spawn_envs(port: u16, nats_url: &str, idp_a: &Idp, idp_b: &Idp) -> Vec<(Strin
         ("ENVIRONMENT".into(), "test".into()),
         ("SECURE_COOKIES".into(), "false".into()),
         ("AUTH_CHECK_SILENT_REFRESH".into(), "false".into()),
+        ("BEARER_SEAL_KEY".into(), SEAL_KEY_B64.into()),
         ("JWKS_REFRESH_COOLDOWN_SECONDS".into(), "1".into()),
         ("OIDC_E2EA_DISCOVERY_URL".into(), idp_a.issuer.clone()),
         ("OIDC_E2EA_CLIENT_ID".into(), PROVIDER_A_CLIENT.into()),
@@ -315,15 +319,8 @@ async fn metrics_exposes_prometheus_exposition() {
     ctx.shutdown().await;
 }
 
-// ---------------------------------------------------------------------------
-// Fail-loud: bearer_tokens bucket absent at boot → svc-auth exits non-zero
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
-async fn bearer_bucket_absent_fails_boot() {
-    // Given the bearer_tokens bucket is NOT declared (only the refresh buckets),
-    // bearer_tokens is a required declared bucket — like the refresh buckets, its
-    // absence is fail-loud, not a degraded-but-running mode.
+async fn published_language_bucket_absent_fails_boot() {
     let idp_a = Idp::start(PROVIDER_A_CLIENT).await;
     let idp_b = Idp::start(PROVIDER_B_CLIENT).await;
     let nats = SpawnedNats::start().await;
@@ -339,36 +336,28 @@ async fn bearer_bucket_absent_fails_boot() {
     let env_refs: Vec<(&str, &str)> = envs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     let mut svc = SpawnedProcess::spawn(SVC_AUTH_BIN, &[], &env_refs);
 
-    // When it boots, it never comes live — it exits because a declared bucket is missing
     let outcome = svc
         .await_boot(&format!("{base_url}/livez"), BOOT_TIMEOUT)
         .await;
 
-    // Then the process exited non-zero (K8s reschedules), it did not stay up
     let status = outcome.exit_status().unwrap_or_else(|| {
-        panic!("svc-auth must EXIT when bearer_tokens is absent, got {outcome:?}")
+        panic!("svc-auth must EXIT when PUBLISHED_LANGUAGE is absent, got {outcome:?}")
     });
     assert!(
         !status.success(),
-        "svc-auth must exit non-zero when bearer_tokens is absent, got {status}"
+        "svc-auth must exit non-zero when PUBLISHED_LANGUAGE is absent, got {status}"
     );
 
     svc.shutdown().await;
     nats.shutdown().await;
 }
 
-// ---------------------------------------------------------------------------
-// Unknown bearer against a HEALTHY bucket resolves anonymous, never 401
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
-async fn unknown_bearer_against_healthy_bucket_resolves_anonymous_200() {
-    // Given a fully-provisioned svc-auth (bearer_tokens present and healthy)
+async fn unresolved_bearer_against_healthy_bucket_is_rejected_401() {
     let ctx = TestContext::full().await;
     assert!(ctx.ready().await, "precondition: svc-auth must be ready");
     let client = Client::new();
 
-    // When /auth/check is called with a bearer credential that is NOT in the bucket
     let resp = client
         .get(format!("{}/auth/check", ctx.base_url))
         .header("authorization", "Bearer unknown-bearer-not-in-kv")
@@ -376,12 +365,10 @@ async fn unknown_bearer_against_healthy_bucket_resolves_anonymous_200() {
         .await
         .unwrap();
 
-    // Then it resolves to anonymous (200), never 401 — an unresolvable credential
-    // against a healthy bucket is "no session", not "rejected".
     assert_eq!(
         resp.status(),
-        200,
-        "unknown bearer against a healthy bucket must resolve anonymous 200, never 401"
+        401,
+        "an unresolved bearer against a healthy bucket must fail closed with 401"
     );
 
     ctx.shutdown().await;
@@ -536,13 +523,11 @@ async fn auth_check_expired_jwt_cookie_returns_401() {
 }
 
 #[tokio::test]
-async fn auth_check_unknown_jwt_as_bearer_resolves_anonymous_200() {
+async fn auth_check_unknown_jwt_as_bearer_is_rejected_401() {
     let ctx = TestContext::full().await;
     let client = Client::new();
     let token = mint_internal_jwt("alice@example.com", false, true);
 
-    // When an internal JWT is presented on the Bearer path it is an unknown opaque
-    // token to the bearer validator (not a PAT in bearer_tokens).
     let resp = client
         .get(format!("{}/auth/check", ctx.base_url))
         .header("authorization", format!("Bearer {token}"))
@@ -550,11 +535,10 @@ async fn auth_check_unknown_jwt_as_bearer_resolves_anonymous_200() {
         .await
         .unwrap();
 
-    // Then it resolves anonymous (200), never 401.
     assert_eq!(
         resp.status(),
-        200,
-        "an unknown bearer against a healthy bucket must resolve anonymous 200, never 401"
+        401,
+        "an unresolved bearer against a healthy bucket must fail closed with 401"
     );
 
     ctx.shutdown().await;
