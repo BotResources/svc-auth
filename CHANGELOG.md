@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 1.0.0
+
+### Changed
+
+- Migrated to `br-rust-common` v1.0.2 (`br-core-auth`, `br-util-observability`,
+  `br-util-axum-readiness`) and `br-test-harness` v1.0.1. Mechanical pin refresh
+  against the unified workspace tags; no public-surface or contract change in the
+  consumed crates, and **no behavior change in svc-auth itself**.
+
+### Added
+
+- The **bearer credential contract family**, shipped as workspace-member crates
+  (each versioned independently at `0.1.0`):
+  - `br-auth-contract` — the **frozen, AEAD-sealed bearer wire**:
+    `BearerEntry` / `SealedBearer`, destined for the `PUBLISHED_LANGUAGE` KV
+    under the `identity/bearer_tokens/` key prefix. The entry is sealed with
+    ChaCha20-Poly1305, **bound to its KV key via the AEAD AAD** so a value
+    cannot be lifted to another key.
+  - `br-auth-conformance-test` — an **independent-anchor conformance battery**:
+    a Go reimplementation freezes the wire, and the test deserializes the
+    Go-frozen bytes **through the real `br-auth-contract` types as the oracle**,
+    so any drift in the lib's view of the wire fails the test.
+  - `br-auth-identity-util` — the **producer kit**: `put` / `delete` of bearer
+    entries over the NATS Fabric.
+
+  These crates are **not yet wired into the svc-auth binary** — they are the
+  contract + producer + conformance socle for the bearer integration to come.
+
 ## 0.5.0
 
 ### Security

@@ -1,7 +1,15 @@
+[workspace]
+members = [
+    "crates/br-auth-contract",
+    "crates/br-auth-conformance-test",
+    "crates/br-auth-identity-util",
+]
+resolver = "3"
+
 [package]
 name = "svc-auth"
 description = "Portable, infra-light authentication gatekeeper: multi-provider OIDC id_token to internal JWT (HttpOnly cookies), refresh-token rotation with reuse detection, and bearer-token validation over NATS KV (no database)."
-version = "0.5.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -21,10 +29,10 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 
 async-nats = "0.48"
 
-br-core-auth = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-auth", tag = "v0.11.0", version = "0.11.0" }
+br-core-auth = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-auth", tag = "v1.0.2", version = "1.0.2" }
 
-br-util-observability = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-observability", tag = "v0.11.0", version = "0.11.0" }
-br-util-axum-readiness = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-axum-readiness", tag = "v0.11.0", version = "0.11.0" }
+br-util-observability = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-observability", tag = "v1.0.2", version = "1.0.2" }
+br-util-axum-readiness = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-axum-readiness", tag = "v1.0.2", version = "1.0.2" }
 
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -34,13 +42,13 @@ base64 = "0.22"
 thiserror = "2"
 
 [dev-dependencies]
-br-test-harness = { git = "https://github.com/BotResources/br-e2e-harness", package = "br-test-harness", tag = "v0.5.1", version = "0.5.1", default-features = false, features = [
+br-test-harness = { git = "https://github.com/BotResources/br-e2e-harness", package = "br-test-harness", tag = "v1.0.1", version = "1.0.1", default-features = false, features = [
     "oidc",
     "spawned-nats",
     "nats",
     "http-client",
 ] }
-br-core-auth = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-auth", tag = "v0.11.0", version = "0.11.0" }
+br-core-auth = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-auth", tag = "v1.0.2", version = "1.0.2" }
 async-nats = "0.48"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 tokio = { version = "1", features = ["full"] }

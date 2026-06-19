@@ -1,0 +1,23 @@
+[package]
+name = "br-auth-identity-util"
+description = "Identity-side producer kit for bearer credentials: seals a BearerEntry through br-auth-contract and upserts/retracts it on the shared PUBLISHED_LANGUAGE KV bucket via the real br-util-nats-fabric publisher (the publish/revoke half svc-auth reads)."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/BotResources/svc-auth"
+
+[dependencies]
+br-auth-contract = { path = "../br-auth-contract", version = "0.1.0" }
+br-util-nats-fabric = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-nats-fabric", tag = "v1.0.2", version = "1.0.2" }
+
+thiserror = "2"
+
+[dev-dependencies]
+br-core-kernel = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-kernel", tag = "v1.0.2", version = "1.0.2" }
+uuid = { version = "1", features = ["v7"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+br-test-harness = { git = "https://github.com/BotResources/br-e2e-harness", package = "br-test-harness", tag = "v1.0.1", version = "1.0.1", default-features = false, features = [
+    "nats-fabric",
+    "spawned-nats",
+] }
