@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 0.2.0 - 2026-07-12
+
+### Changed
+
+- Bumped the `br-core-auth` / `br-core-kernel` pins to `br-rust-common` v1.1.0.
+  Minor bump because the public `BearerEntry.actor` field is a
+  `br_core_kernel::Actor`, so a consumer of this crate now agrees on the v1.1.0
+  identity types (shared-version coupling). The wire (sealed envelope, KV key,
+  AEAD scheme, payload shape) is byte-unchanged.
+
 ## 0.1.0 - 2026-06-19
 
 ### Added
