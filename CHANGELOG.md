@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 1.0.3
+
+### Changed
+
+- **Bumped `br-rust-common` to v1.1.0 and `br-e2e-harness` (`br-test-harness`)
+  to v1.1.0** across every crate (`br-core-auth`, `br-core-kernel`,
+  `br-util-nats-fabric`, `br-util-observability`, `br-util-axum-readiness`, and
+  the test harness). Mechanical pin refresh — both the `tag` and the `version`
+  requirement move together on each git dependency. The service wire (HTTP
+  endpoints, NATS subjects, the sealed-bearer contract) is unchanged, so this is
+  a patch.
+- The v1.1.0 fabric run-loop now **auto-recovers from transient missed
+  JetStream heartbeats** instead of surfacing them as a fatal consume error, so
+  the bearer reader and refresh store ride out a brief broker hiccup without a
+  restart. This is an inherited resilience benefit — no svc-auth code change
+  (the new `ConsumeErrorKind::HeartbeatMissed` variant is handled inside the
+  fabric; svc-auth never matches on it).
+- Refreshed lockfile-only advisory bumps: `crossbeam-epoch` 0.9.18 -> 0.9.20
+  (RUSTSEC-2026-0204) and `quinn-proto` 0.11.14 -> 0.11.16 (RUSTSEC-2026-0185,
+  an optional reqwest `http3` transitive not compiled in this build).
+
 ## 1.0.2
 
 ### Security
