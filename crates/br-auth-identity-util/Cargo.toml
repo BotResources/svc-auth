@@ -9,15 +9,15 @@ repository = "https://github.com/BotResources/svc-auth"
 
 [dependencies]
 br-auth-contract = { path = "../br-auth-contract", version = "0.2.0" }
-br-util-nats-fabric = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-nats-fabric", tag = "v1.1.0", version = "1.1.0" }
+br-util-nats-fabric = { git = "https://github.com/BotResources/br-rust-common", package = "br-util-nats-fabric", tag = "v1.2.0", version = "1.2.0" }
 
 thiserror = "2"
 
 [dev-dependencies]
-br-core-kernel = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-kernel", tag = "v1.1.0", version = "1.1.0" }
+br-core-kernel = { git = "https://github.com/BotResources/br-rust-common", package = "br-core-kernel", tag = "v1.2.0", version = "1.2.0" }
 uuid = { version = "1", features = ["v7"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-br-test-harness = { git = "https://github.com/BotResources/br-e2e-harness", package = "br-test-harness", tag = "v1.1.0", version = "1.1.0", default-features = false, features = [
+br-test-harness = { git = "https://github.com/BotResources/br-e2e-harness", package = "br-test-harness", tag = "v1.1.2", version = "1.1.2", default-features = false, features = [
     "nats-fabric",
     "spawned-nats",
 ] }

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 1.0.4
+
+### Changed
+
+- Dependency-only patch: `br-rust-common` pins v1.1.0 → **v1.2.0** (picks up the
+  NoResponders-recoverable consumer recovery and the supervised
+  `PublishedLanguageConsumer::run()`; `WatchHealth` now starts `Degraded` and is
+  written only by the supervised loop) and `br-test-harness` v1.1.0 → **v1.1.2**.
+  No svc-auth surface change. Part of the v1.2.0 consumer wave unblocking
+  be-botresources#242.
+
 ## 1.0.3
 
 ### Changed
