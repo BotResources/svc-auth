@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING (behaviour, not wire): the session cookie now has a lifecycle.**
+  `__Host-session_id` used to be written once per *browser jar* and never removed —
+  `/auth/token` minted one only when absent, `logout` cleared access and refresh but
+  not it, and the cookie carried neither `Max-Age` nor `Expires`. A logout → login
+  round trip in the same window therefore kept the previous session's correlation id.
+  Now: `/auth/token` writes a **new** id on every successful exchange, and `logout`
+  clears it alongside the other two. `/auth/refresh` and `/auth/check` are unchanged
+  and still write one only when absent — a rotation is the same sign-in continuing,
+  and that property is now pinned by a test.
+- **New:** `cookie::build_clear_session_cookie` — the twin of the existing
+  `build_clear_access_cookie` / `build_clear_refresh_cookie`, mirroring the exact
+  attributes `build_session_cookie` sets (`HttpOnly; Secure; SameSite=Lax; Path=/`)
+  plus `Max-Age=0`, so the browser matches and drops the cookie.
+- **A failed `/auth/token` no longer opens a session.** The id was previously minted
+  on the success path only when absent; it is now minted on the success path only,
+  full stop.
+- `token_handler` no longer takes `HeaderMap` — it has nothing left to read from the
+  request.
+
+Two consumers of this behaviour, both stated so the change can be judged:
+a correlation id surviving a sign-out on a shared machine is a privacy defect in its
+own right, and `bma-identity` 0.1.3 binds a borrowed identity (impersonation) to this
+id — so the old lifecycle meant a borrowed identity outliving a logout. Downstream
+services that treated the id as *stable for the life of the browser* will see it
+change on every sign-in; that is the point, but it is a behaviour change.
+
+### Tests
+
+- `logout_clears_the_session_cookie_with_the_other_two` replaces
+  `logout_does_not_clear_session_cookie`, which pinned the old behaviour.
+- `logging_out_and_back_in_does_not_reuse_the_previous_session_id`,
+  `two_sign_ins_on_the_same_jar_get_two_session_ids`,
+  `a_failed_exchange_opens_no_session`.
+- `a_silent_refresh_leaves_the_session_id_alone` — the property downstream depends
+  on, previously untested and easy to break while changing the above.
+
 ## 1.0.4
 
 ### Changed

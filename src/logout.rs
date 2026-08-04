@@ -5,7 +5,8 @@ use axum::response::{IntoResponse, Response};
 
 use crate::AppState;
 use crate::cookie::{
-    build_clear_access_cookie, build_clear_refresh_cookie, extract_refresh_cookie,
+    build_clear_access_cookie, build_clear_refresh_cookie, build_clear_session_cookie,
+    extract_refresh_cookie,
 };
 
 pub async fn logout_handler(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -20,6 +21,7 @@ pub async fn logout_handler(State(state): State<AppState>, headers: HeaderMap) -
 
     let clear_access = build_clear_access_cookie(&state.cookie_config);
     let clear_refresh = build_clear_refresh_cookie(&state.cookie_config);
+    let clear_session = build_clear_session_cookie(&state.cookie_config);
 
     let body = serde_json::json!({ "status": "logged_out" });
     let mut response = (StatusCode::OK, axum::Json(body)).into_response();
@@ -31,6 +33,10 @@ pub async fn logout_handler(State(state): State<AppState>, headers: HeaderMap) -
     hdrs.append(
         SET_COOKIE,
         clear_refresh.parse().expect("cookie is valid ASCII"),
+    );
+    hdrs.append(
+        SET_COOKIE,
+        clear_session.parse().expect("cookie is valid ASCII"),
     );
     response
 }

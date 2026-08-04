@@ -696,25 +696,178 @@ async fn auth_check_valid_jwt_cookie_returns_200() {
 }
 
 #[tokio::test]
-async fn logout_does_not_clear_session_cookie() {
+async fn logout_clears_the_session_cookie_with_the_other_two() {
     let ctx = TestContext::full().await;
     let session_name = session_cookie_name(false);
     let client = Client::new();
 
     let resp = client
         .post(format!("{}/auth/logout", ctx.base_url))
-        .header("cookie", format!("{session_name}=keep-me"))
+        .header("cookie", format!("{session_name}=carried-over"))
         .send()
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
 
     let cookies = set_cookies(&resp);
+    for name in ["access_token", "refresh_token", session_name] {
+        let cleared = cookies
+            .iter()
+            .find(|c| c.starts_with(&format!("{name}=;")))
+            .unwrap_or_else(|| panic!("logout must clear {name}, got: {cookies:?}"));
+        assert!(
+            cleared.contains("Max-Age=0"),
+            "clearing {name} means expiring it, got: {cleared}"
+        );
+    }
+
+    ctx.shutdown().await;
+}
+
+#[tokio::test]
+async fn logging_out_and_back_in_does_not_reuse_the_previous_session_id() {
+    let ctx = TestContext::full().await;
+    let session_name = session_cookie_name(false);
+    let client = Client::new();
+
+    let first = post_auth_token(
+        &client,
+        &ctx.base_url,
+        &ctx.idp_a.mint(&mint_req("erin@example.com")),
+    )
+    .await;
+    assert_eq!(first.status(), 200);
+    let opened = cookie_value(&first, session_name).expect("a sign-in opens a session");
+
+    let logout = client
+        .post(format!("{}/auth/logout", ctx.base_url))
+        .header("cookie", format!("{session_name}={opened}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(logout.status(), 200);
+
+    let second = client
+        .post(format!("{}/auth/token", ctx.base_url))
+        .header("cookie", format!("{session_name}={opened}"))
+        .json(&serde_json::json!({
+            "grant_type": "id_token",
+            "id_token": ctx.idp_a.mint(&mint_req("erin@example.com")),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), 200);
+    let reopened = cookie_value(&second, session_name).expect("a sign-in opens a session");
+
+    assert_ne!(
+        reopened, opened,
+        "a sign-in must not inherit the correlation id of the session before it"
+    );
+
+    ctx.shutdown().await;
+}
+
+#[tokio::test]
+async fn two_sign_ins_on_the_same_jar_get_two_session_ids() {
+    let ctx = TestContext::full().await;
+    let session_name = session_cookie_name(false);
+    let client = Client::new();
+
+    let first = post_auth_token(
+        &client,
+        &ctx.base_url,
+        &ctx.idp_a.mint(&mint_req("frank@example.com")),
+    )
+    .await;
+    assert_eq!(first.status(), 200);
+    let first_id = cookie_value(&first, session_name).expect("a sign-in opens a session");
+
+    let second = client
+        .post(format!("{}/auth/token", ctx.base_url))
+        .header("cookie", format!("{session_name}={first_id}"))
+        .json(&serde_json::json!({
+            "grant_type": "id_token",
+            "id_token": ctx.idp_a.mint(&mint_req("grace@example.com")),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), 200);
+    let second_id = cookie_value(&second, session_name).expect("a sign-in opens a session");
+
+    assert_ne!(
+        first_id, second_id,
+        "a second person signing in on a shared machine must not inherit the first \
+         one's correlation id"
+    );
+
+    ctx.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_failed_exchange_opens_no_session() {
+    let ctx = TestContext::full().await;
+    let session_name = session_cookie_name(false);
+    let client = Client::new();
+
+    let resp = post_auth_token(&client, &ctx.base_url, "not-an-id-token").await;
+    assert!(resp.status().is_client_error(), "{:?}", resp.status());
+
+    let cookies = set_cookies(&resp);
     assert!(
         !cookies
             .iter()
             .any(|c| c.starts_with(&format!("{session_name}="))),
-        "logout must NOT touch the session cookie, got: {cookies:?}"
+        "only a successful exchange is a sign-in, got: {cookies:?}"
+    );
+
+    ctx.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_silent_refresh_leaves_the_session_id_alone() {
+    let ctx = TestContext::full().await;
+    let session_name = session_cookie_name(false);
+    let client = Client::new();
+
+    let opened = post_auth_token(
+        &client,
+        &ctx.base_url,
+        &ctx.idp_a.mint(&mint_req("heidi@example.com")),
+    )
+    .await;
+    assert_eq!(opened.status(), 200);
+    let session_id = cookie_value(&opened, session_name).expect("a sign-in opens a session");
+    let refresh = cookie_value(&opened, "refresh_token").expect("refresh_token cookie");
+
+    let rotated = client
+        .post(format!("{}/auth/refresh", ctx.base_url))
+        .header(
+            "cookie",
+            format!("{session_name}={session_id}; refresh_token={refresh}"),
+        )
+        .header("content-type", "application/json")
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rotated.status(), 200);
+
+    let rotated_access = cookie_value(&rotated, "access_token");
+    assert!(
+        rotated_access.is_some(),
+        "the rotation did happen: {:?}",
+        set_cookies(&rotated)
+    );
+    assert!(
+        !set_cookies(&rotated)
+            .iter()
+            .any(|c| c.starts_with(&format!("{session_name}="))),
+        "a silent refresh replaces the access token and must leave the session id \
+         alone — bma-identity binds a borrowed identity to it, and a borrow that died \
+         every few minutes would be unusable: {:?}",
+        set_cookies(&rotated)
     );
 
     ctx.shutdown().await;

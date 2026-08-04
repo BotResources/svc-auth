@@ -27,10 +27,10 @@ Proves identity ("the human behind this request controls this email") via multi-
 
 | Method | Path             | Description                                      |
 |--------|------------------|--------------------------------------------------|
-| POST   | `/auth/token`    | Exchange OIDC id_token for internal JWT (cookies) |
-| POST   | `/auth/refresh`  | Rotate refresh token, get new access token        |
+| POST   | `/auth/token`    | Exchange OIDC id_token for internal JWT (cookies); opens a **new** session on every successful exchange |
+| POST   | `/auth/refresh`  | Rotate refresh token, get new access token; leaves the session cookie untouched |
 | GET    | `/auth/check`    | nginx `auth_request` -- validate JWT cookie, or resolve a sealed bearer (`401` if unresolved) |
-| POST   | `/auth/logout`   | Revoke refresh token family, clear cookies        |
+| POST   | `/auth/logout`   | Revoke refresh token family, clear all three cookies (access, refresh, session) |
 | GET    | `/livez`         | Liveness -- always 200                             |
 | GET    | `/readyz`        | Readiness -- 200 once NATS KV buckets are reachable |
 | GET    | `/metrics`       | Prometheus exposition (anonymized labels)         |
@@ -59,7 +59,12 @@ OIDC providers are auto-detected at startup by scanning for `OIDC_*_DISCOVERY_UR
   sealed bearer resolution from the `PUBLISHED_LANGUAGE` bucket
 - **Multi-provider OIDC** with auto-discovery, per-provider JWKS cache, refresh on unknown `kid` (cooldown-gated, `JWKS_REFRESH_COOLDOWN_SECONDS`)
 - **Token rotation** with family-based revocation (reuse detection)
-- **HttpOnly cookies** with `__Host-` prefix in production
+- **HttpOnly cookies** with `__Host-` prefix in production: the access token, the
+  refresh token, and a **session-correlation cookie** (`__Host-session_id`). The
+  third names the sign-in, not the person and not the credential: it is written on
+  every successful `/auth/token`, left alone by every rotation, and cleared at
+  logout. It authenticates nobody and svc-auth never reads its value back for any
+  decision — consumers use it to scope state that must not outlive a sign-in
 - **Silent refresh** on expired access tokens via `auth_check`
 - **Bearer resolution** against the AEAD-sealed `br-auth-contract` wire in the
   `PUBLISHED_LANGUAGE` bucket (`identity/bearer_tokens/` prefix, ChaCha20-Poly1305,
@@ -84,6 +89,9 @@ OIDC providers are auto-detected at startup by scanning for `OIDC_*_DISCOVERY_UR
 | Both rotation paths (`/auth/refresh` and silent `/auth/check`) go through the single `rotation::rotate` primitive | Reuse — whether a `used_at` replay or a concurrent CAS conflict — revokes the whole token family in exactly one place, so the two HTTP handlers cannot diverge on the security invariant; they differ only in response shape (401 error JSON vs cookie-clear). On a CAS conflict the new token has already been written, but it carries the now-revoked `family_id`, so it is inert. A failed `revoke_family` is logged (never silently dropped) so a stuck revocation is observable. |
 | `mark_used` takes the KV `revision` (CAS) | Two concurrent refreshes of the same token must not both succeed: the compare-and-swap on the revision makes the second writer fail — a lost-update guard on rotation (distinct from the `used_at` replay check, which is the actual reuse-detection). Both the CAS conflict and the `used_at` replay revoke the family. |
 | `/auth/token` and `/auth/refresh` return only metadata; the access/refresh tokens go in `Set-Cookie` | Credentials are never placed in a response body that a client (or a log) could read back — they ride HttpOnly cookies only. |
+| `/auth/token` writes a **new** `session_id` on every successful exchange, while `/auth/refresh` and `/auth/check` write one only when it is absent | The three endpoints answer three different questions. A successful token exchange **is** a sign-in, so it starts a new correlation — a second person on a shared machine, or the same person after a logout, must not inherit the previous one. A rotation is the same sign-in continuing: touching the id there would make it turn over every few minutes and correlate nothing. `/auth/check` only backfills a jar that has none. Before this rule the cookie was written once per *browser jar* and never cleared, so a logout → login round trip silently kept the previous session's id. |
+| Logout clears the session cookie, not just the credentials | A correlation id that survives a deliberate sign-out is a privacy defect on a shared machine: the next person's traffic is stitched to the previous person's session. It is also load-bearing downstream — `bma-identity` binds a borrowed identity (impersonation) to this id, so a session cookie outliving a logout means a borrowed identity outliving it too. Cleared with the exact attributes it was set with (`Max-Age=0`), so the browser matches and drops it. |
+| A **failed** `/auth/token` opens no session | Only a verified exchange is a sign-in. Minting a correlation id for a rejected id_token would let an unauthenticated caller churn cookies, and would mark as "a session" something that never became one. |
 
 ## Kubernetes deployment
 
