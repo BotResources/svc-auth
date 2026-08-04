@@ -81,6 +81,15 @@ pub fn build_session_cookie(session_id: &str, config: &CookieConfig) -> String {
     }
 }
 
+pub fn build_clear_session_cookie(config: &CookieConfig) -> String {
+    let name = config.session_cookie_name();
+    if config.secure {
+        format!("{name}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0")
+    } else {
+        format!("{name}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0")
+    }
+}
+
 pub fn extract_session_cookie(headers: &HeaderMap, config: &CookieConfig) -> Option<String> {
     let cookie_header = headers.get(COOKIE)?.to_str().ok()?;
     br_core_auth::extract_session_id(cookie_header, config.secure).map(|s| s.to_string())
@@ -241,6 +250,31 @@ mod tests {
         assert!(c.contains("Secure"));
         assert!(c.contains("SameSite=Lax"));
         assert!(!c.contains("Max-Age"));
+    }
+
+    #[test]
+    fn clear_session_cookie_has_zero_max_age() {
+        let c = build_clear_session_cookie(&insecure_config());
+        assert!(c.contains("Max-Age=0"));
+        assert!(c.starts_with("session_id=;"));
+    }
+
+    #[test]
+    fn clear_session_cookie_matches_the_attributes_it_was_set_with() {
+        let set = build_session_cookie("some-uuid", &secure_config());
+        let clear = build_clear_session_cookie(&secure_config());
+        for attribute in [
+            "__Host-session_id=",
+            "HttpOnly",
+            "Secure",
+            "SameSite=Lax",
+            "Path=/",
+        ] {
+            assert!(set.contains(attribute), "{set}");
+            assert!(clear.contains(attribute), "{clear}");
+        }
+        assert!(!set.contains("Max-Age"));
+        assert!(clear.contains("Max-Age=0"));
     }
 
     #[test]
