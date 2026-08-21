@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **CI/CD integration with the production Services registry** (no runtime
+  change). Releases are now gated on `servicesValidateImplementationTarget`:
+  the bumped version must be a sealed, not-implemented PatchVersion. CI gates
+  a version bump at PR time (`registry gate` job); CD gates before the build
+  and again immediately before the push, poses the patch's two procedural
+  documents (both legitimately empty — svc-auth serves no GraphQL and owns no
+  database) via `servicesSetPatchSdl` / `servicesSetPatchDbSchema`, and
+  records the published image ref via `servicesRecordPatchImage` after the
+  push. New: `scripts/registry-{gate,docs,implement}.sh`,
+  `scripts/service-meta.sh`, `registry.toml` (the committed service UUID),
+  the `registry gate` required check in `scripts/setup-branch-protection.sh`.
+
 ## 1.0.4
 
 ### Changed

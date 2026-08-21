@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# setup-branch-protection.sh — declaratively manage required status checks
-# for the main branch via the GitHub API.
-#
-# Usage:
-#   scripts/setup-branch-protection.sh              # apply
-#   scripts/setup-branch-protection.sh --dry-run    # preview only
-#
-# Requires: gh CLI authenticated with admin access to the repo.
 
 set -euo pipefail
 
@@ -21,6 +13,7 @@ REQUIRED_CHECKS=(
     "clippy + test"
     "supply chain (audit + deny + machete)"
     "changelog entry present"
+    "registry gate (bumped version sealed in the registry)"
     "trufflehog (secret scan)"
     "shellcheck"
     "e2e"
