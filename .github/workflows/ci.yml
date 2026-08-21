@@ -14,10 +14,6 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Auto-fix gate: cargo fmt, auto-push the fix, fail to force re-run.
-  # All Rust jobs depend on this via `needs: fmt`.
-  # ---------------------------------------------------------------------------
   fmt:
     name: cargo fmt (auto-fix)
     runs-on: ubuntu-latest
@@ -56,9 +52,6 @@ jobs:
           echo "::error::Code was auto-formatted and pushed. Please re-run CI."
           exit 1
 
-  # ---------------------------------------------------------------------------
-  # Clippy + unit tests + helm lint
-  # ---------------------------------------------------------------------------
   check:
     name: clippy + test
     needs: fmt
@@ -86,18 +79,6 @@ jobs:
       - name: helm template dry-run
         run: helm template ci charts/br-svc-auth --debug > /dev/null
 
-  # ---------------------------------------------------------------------------
-  # Supply-chain: audit (RustSec) + deny (licenses/bans/sources) + machete
-  # (unused deps). Merged into one job to avoid three separate job overheads
-  # (~1.5 min fixed cost each). Tools are installed from prebuilt binaries via
-  # taiki-e/install-action — no compilation needed (was ~85 s for cargo-audit,
-  # ~2 min for cargo-deny, ~1.5 min for cargo-machete per run).
-  # We run both cargo-audit AND cargo-deny because they cover different ground:
-  # audit checks your Cargo.lock against RustSec advisories; deny also checks
-  # licenses, banned crates, and allowed sources — complementary, not redundant.
-  # One taiki-e install step covers all three tools, and the invocations stay
-  # plain `cargo …` commands we control.
-  # ---------------------------------------------------------------------------
   supply-chain:
     name: supply chain (audit + deny + machete)
     needs: fmt
@@ -119,9 +100,6 @@ jobs:
       - name: cargo machete (unused deps)
         run: cargo machete
 
-  # ---------------------------------------------------------------------------
-  # Changelog entry present (independent — no Rust needed)
-  # ---------------------------------------------------------------------------
   changelog:
     name: changelog entry present
     runs-on: ubuntu-latest
@@ -142,9 +120,47 @@ jobs:
           fi
           echo "Found changelog entry for $version"
 
-  # ---------------------------------------------------------------------------
-  # Trufflehog: secret scan (independent)
-  # ---------------------------------------------------------------------------
+  registry-gate:
+    name: registry gate (bumped version sealed in the registry)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: gate a bumped version against the Services registry
+        env:
+          BR_REGISTRY_KEY: ${{ secrets.BR_REGISTRY_KEY }}
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: |
+          set -euo pipefail
+
+          read_version() {
+              awk '
+                  /^\[package\]/      { in_pkg = 1; next }
+                  /^\[/ && !/^\[package\]/ { in_pkg = 0 }
+                  in_pkg && /^version *=/ {
+                      gsub(/[" ]/, "", $3); print $3; exit
+                  }'
+          }
+
+          git fetch -q origin "${BASE_REF}"
+
+          version="$(read_version <Cargo.toml)"
+          base_version="$(git show "origin/${BASE_REF}:Cargo.toml" 2>/dev/null | read_version || true)"
+
+          if [[ "${version}" == "${base_version}" ]]; then
+              echo "svc-auth version unchanged (${version}) — nothing to gate."
+              exit 0
+          fi
+          if [[ "${version}" == *-dev* || "${version}" == *-rc* || "${version}" == *-pre* ]]; then
+              echo "svc-auth ${version} is non-release — not gated."
+              exit 0
+          fi
+
+          echo "svc-auth: ${base_version:-<absent>} -> ${version} — gating against the registry."
+          scripts/registry-gate.sh svc-auth "${version}"
+
   secrets:
     name: trufflehog (secret scan)
     runs-on: ubuntu-latest
@@ -156,9 +172,6 @@ jobs:
         with:
           extra_args: --only-verified
 
-  # ---------------------------------------------------------------------------
-  # Shellcheck (independent)
-  # ---------------------------------------------------------------------------
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
@@ -169,12 +182,6 @@ jobs:
           scandir: scripts
           severity: warning
 
-  # ---------------------------------------------------------------------------
-  # E2E: the self-hosted harness suite (tests/e2e.rs). Each test spawns its own
-  # real nats-server (br_test_harness::FabricTestNats), its own in-process OIDC
-  # IdPs, and the real svc-auth binary — no docker, no external services, no
-  # `--ignored`. The only runner dependency is `nats-server` on PATH.
-  # ---------------------------------------------------------------------------
   e2e:
     name: e2e
     needs: check

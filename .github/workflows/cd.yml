@@ -1,9 +1,5 @@
 name: CD
 
-# Triggered by push to main (after a PR merge). Publishes the image only if
-# the Cargo.toml version has no matching git tag yet. The tag is created after
-# a successful publish — gated on the version not already being tagged.
-
 on:
   push:
     branches: [main]
@@ -29,15 +25,15 @@ jobs:
     defaults:
       run:
         shell: bash
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      skip: ${{ steps.ver.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      # -----------------------------------------------------------------------
-      # Gate: skip if this version is already tagged (= already published)
-      # -----------------------------------------------------------------------
       - name: resolve version + gate
         id: ver
         run: |
@@ -58,18 +54,20 @@ jobs:
         run: |
           version="${{ steps.ver.outputs.version }}"
           if [ ! -f CHANGELOG.md ]; then
-            echo "::warning::CHANGELOG.md missing — skipping publish"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::error::CHANGELOG.md missing"
             exit 1
           fi
           if ! grep -qE "^## ${version}( |$)" CHANGELOG.md; then
-            echo "::warning::CHANGELOG.md has no '## $version' heading — skipping publish"
+            echo "::error::CHANGELOG.md has no '## $version' heading"
             exit 1
           fi
 
-      # -----------------------------------------------------------------------
-      # Toolchain: static-musl cross-compile via cargo-zigbuild
-      # -----------------------------------------------------------------------
+      - name: registry gate (pre-build)
+        if: steps.ver.outputs.skip == 'false'
+        env:
+          BR_REGISTRY_KEY: ${{ secrets.BR_REGISTRY_KEY }}
+        run: scripts/registry-gate.sh svc-auth "${{ steps.ver.outputs.version }}" "${IMAGE}"
+
       - name: setup rust targets
         if: steps.ver.outputs.skip == 'false'
         uses: dtolnay/rust-toolchain@stable
@@ -104,9 +102,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # -----------------------------------------------------------------------
-      # Build: cross-compile both targets
-      # -----------------------------------------------------------------------
       - name: cargo zigbuild (x86_64-musl)
         if: steps.ver.outputs.skip == 'false'
         run: cargo zigbuild --release --locked --target x86_64-unknown-linux-musl
@@ -115,9 +110,6 @@ jobs:
         if: steps.ver.outputs.skip == 'false'
         run: cargo zigbuild --release --locked --target aarch64-unknown-linux-musl
 
-      # -----------------------------------------------------------------------
-      # Assert: binaries are truly static (no PT_INTERP segment)
-      # -----------------------------------------------------------------------
       - name: assert static (no PT_INTERP)
         if: steps.ver.outputs.skip == 'false'
         run: |
@@ -132,9 +124,18 @@ jobs:
             echo "ok: $path is static"
           done
 
-      # -----------------------------------------------------------------------
-      # Package: one image per arch, then multi-arch manifest
-      # -----------------------------------------------------------------------
+      - name: registry gate (pre-push re-check)
+        if: steps.ver.outputs.skip == 'false'
+        env:
+          BR_REGISTRY_KEY: ${{ secrets.BR_REGISTRY_KEY }}
+        run: scripts/registry-gate.sh svc-auth "${{ steps.ver.outputs.version }}" "${IMAGE}"
+
+      - name: registry docs (pose procedural SDL + DB schema)
+        if: steps.ver.outputs.skip == 'false'
+        env:
+          BR_REGISTRY_KEY: ${{ secrets.BR_REGISTRY_KEY }}
+        run: scripts/registry-docs.sh svc-auth "${{ steps.ver.outputs.version }}"
+
       - name: docker build + push (amd64)
         if: steps.ver.outputs.skip == 'false'
         run: |
@@ -162,9 +163,6 @@ jobs:
             docker manifest push "${IMAGE}:${tag}"
           done
 
-      # -----------------------------------------------------------------------
-      # Helm chart publish
-      # -----------------------------------------------------------------------
       - name: publish helm chart
         if: steps.ver.outputs.skip == 'false'
         env:
@@ -183,9 +181,6 @@ jobs:
 
           helm push "$CHART_OUT/br-svc-auth-${VERSION}.tgz" "$CHART_REPO"
 
-      # -----------------------------------------------------------------------
-      # Auto-tag: only after successful publish
-      # -----------------------------------------------------------------------
       - name: create git tag
         if: steps.ver.outputs.skip == 'false'
         run: |
@@ -195,3 +190,16 @@ jobs:
           git tag "$TAG"
           git push origin "$TAG"
           echo "::notice::Created tag $TAG"
+
+  registry-implement:
+    name: registry implement
+    runs-on: ubuntu-latest
+    needs: publish
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.publish.outputs.skip == 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: record image + observe implemented flip
+        env:
+          BR_REGISTRY_KEY: ${{ secrets.BR_REGISTRY_KEY }}
+        run: scripts/registry-implement.sh svc-auth "${{ needs.publish.outputs.version }}" "${IMAGE}:${{ needs.publish.outputs.version }}"
