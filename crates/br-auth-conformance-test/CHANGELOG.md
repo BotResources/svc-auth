@@ -4,6 +4,16 @@ All notable changes to `br-auth-conformance-test` are documented here. The forma
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this crate keeps
 its own version line (independent of `br-auth-contract`).
 
+## 0.1.2 - 2026-09-08
+
+### Changed
+
+- Followed `br-auth-contract` to 0.3.0 and bumped the `br-core-kernel` /
+  `br-util-nats-fabric` pins to `br-rust-common` **v1.3.0** and `br-test-harness`
+  to `br-e2e-harness` **v1.2.0**. Patch bump — the crate's public surface names no
+  `br-rust-common` type directly (only `br-auth-contract`'s `BearerEntry` /
+  `SealedBearer`), and it stays a test fixture.
+
 ## 0.1.1 - 2026-07-12
 
 ### Changed
