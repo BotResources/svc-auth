@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 1.0.5 - 2026-09-08
+
 ### Added
 
 - **CI/CD integration with the production Services registry** (no runtime
@@ -19,6 +21,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   push. New: `scripts/registry-{gate,docs,implement}.sh`,
   `scripts/service-meta.sh`, `registry.toml` (the committed service UUID),
   the `registry gate` required check in `scripts/setup-branch-protection.sh`.
+
+### Changed
+
+- Dependency-only patch: `br-rust-common` pins v1.2.0 → **v1.3.0** and
+  `br-e2e-harness` (`br-test-harness`) v1.1.2 → **v1.2.0**, across every crate
+  (both the `tag` and the `version` requirement move together on each git
+  dependency). No svc-auth surface change — the service wire (HTTP endpoints,
+  NATS subjects, the sealed-bearer contract) is unchanged.
+- No code change was required by either bump. The v1.3.0 fabric behaviour
+  changes svc-auth does not touch: `EphemeralAuthWatcher` (svc-auth uses none),
+  `verify_*_durable` becoming a create-nothing probe (svc-auth uses neither),
+  and the new `PublishedLanguage` CAS surface (svc-auth's refresh store already
+  uses the unchanged `EphemeralAuthStore` CAS). The v1.2.0 harness adds SSE/WS
+  and `FabricTestNats` adversarial APIs svc-auth's e2e does not use; the
+  `conformance-passport` battery moved out of this repo and no longer depends on
+  svc-auth.
+- Library-crate versions: `br-auth-contract` 0.2.0 → **0.3.0** and
+  `br-auth-identity-util` 0.2.0 → **0.3.0** (minor — each exposes a
+  `br-rust-common` type in its public API: `BearerEntry.actor` is a
+  `br_core_kernel::Actor`, `BearerPublisher::open` takes a
+  `&br_util_nats_fabric::Fabric`, so a consumer agrees on the v1.3.0 identity /
+  fabric types — shared-version coupling; the wire is byte-unchanged).
+  `br-auth-conformance-test` 0.1.1 → **0.1.2** (patch — its public surface names
+  no `br-rust-common` type directly, and it stays a test fixture).
+- Helm chart realigned: `charts/br-svc-auth/Chart.yaml` `version` and
+  `appVersion` 1.0.3 → **1.0.5** (the chart had drifted behind the crate at
+  1.0.4; release lockstep).
 
 ## 1.0.4
 

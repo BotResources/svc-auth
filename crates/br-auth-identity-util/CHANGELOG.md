@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 0.3.0 - 2026-09-08
+
+### Changed
+
+- Bumped the `br-util-nats-fabric` pin from `br-rust-common` v1.2.0 to **v1.3.0**
+  (and `br-auth-contract` to 0.3.0). Minor bump because `BearerPublisher::open`
+  takes a `&br_util_nats_fabric::Fabric` in its public signature, so a consumer
+  now agrees on the v1.3.0 fabric (shared-version coupling). No behavioral change.
+
 ## 0.2.0 - 2026-07-12
 
 ### Changed
