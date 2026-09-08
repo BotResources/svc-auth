@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 1.0.5 - 2026-09-08
+
 ### Added
 
 - **CI/CD integration with the production Services registry** (no runtime
@@ -19,8 +21,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   push. New: `scripts/registry-{gate,docs,implement}.sh`,
   `scripts/service-meta.sh`, `registry.toml` (the committed service UUID),
   the `registry gate` required check in `scripts/setup-branch-protection.sh`.
-
-## 1.0.5 - 2026-09-08
 
 ### Changed
 
