@@ -1,0 +1,124 @@
+# TEMPORARY — drop this commit before merging the PR that adds it.
+#
+# Proves that cd.yml's `publish` job works on a GitHub-hosted runner inside
+# `ghcr.io/botresources/br-arc-runner:stable`, with no mlugg/setup-zig:
+# same container, same build path, but nothing is pushed, tagged, or posed
+# to the registry. It exercises the points where the container differs from
+# the bare VM: the runner user vs the host's docker.sock, zig/cargo-zigbuild,
+# readelf, `docker build` through the mounted socket, helm.
+#
+# Until BotResources/infra.botresources.ai#241 is promoted to `:stable`, the
+# image has no zig; the "zig" step then installs it exactly as that PR's
+# Dockerfile does (same URL, same sha256, same paths). Once `:stable` carries
+# it, the step only prints the version.
+name: zig-container-smoke
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/cd.yml
+      - .github/workflows/zig-container-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  IMAGE: ghcr.io/botresources/br-svc-auth
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/botresources/br-arc-runner:stable
+      # root: the image's `runner` user is in docker gid 123, the hosted VM's
+      # /var/run/docker.sock is gid 118 — as `runner`, every docker call is
+      # "permission denied". The VM is discarded after the job, so running
+      # the throwaway container as root costs nothing.
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: container identity + docker socket
+        run: |
+          set -euo pipefail
+          id
+          ls -ln /var/run/docker.sock || true
+          docker version
+
+      - name: zig
+        run: |
+          set -euo pipefail
+          if ! command -v zig >/dev/null; then
+            echo "::notice::zig not in :stable yet — installing as infra#241's Dockerfile does"
+            ZIG_VERSION=0.13.0
+            ZIG_SHA256=d45312e61ebcc48032b77bc4cf7fd6915c11fa16e4aad116b66c9468211230ea
+            ZIG_DIR="zig-linux-x86_64-${ZIG_VERSION}"
+            curl -fsSL -o /tmp/zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/${ZIG_DIR}.tar.xz"
+            echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | sha256sum -c -
+            # no sudo: the container runs as root (see `options` above), and the
+            # image's sudoers only lists `runner`
+            tar -xJf /tmp/zig.tar.xz --no-same-owner -C /opt
+            ln -s "/opt/${ZIG_DIR}/zig" /usr/local/bin/zig
+          fi
+          command -v zig
+          zig version
+
+      - name: setup rust targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+
+      - name: install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      - name: cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo zigbuild (x86_64-musl)
+        run: cargo zigbuild --release --locked --target x86_64-unknown-linux-musl
+
+      - name: cargo zigbuild (aarch64-musl)
+        run: cargo zigbuild --release --locked --target aarch64-unknown-linux-musl
+
+      - name: assert static (no PT_INTERP)
+        run: |
+          set -euo pipefail
+          for triple in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            path="target/${triple}/release/svc-auth"
+            if readelf -l "$path" | grep -q "INTERP"; then
+              echo "::error::$path has a PT_INTERP segment — it is NOT static"
+              exit 1
+            fi
+            echo "ok: $path is static"
+          done
+
+      - name: registry docs (--print-only, no registry call)
+        run: |
+          version="$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          scripts/registry-docs.sh svc-auth "$version" --print-only
+
+      - name: docker build (amd64 + arm64, no push)
+        run: |
+          set -euo pipefail
+          for arch in amd64:x86_64 arm64:aarch64; do
+            docker build --provenance=false --platform "linux/${arch%%:*}" \
+              --build-arg BIN_PATH="target/${arch##*:}-unknown-linux-musl/release/svc-auth" \
+              --tag "${IMAGE}:smoke-${arch%%:*}" .
+          done
+          docker image ls "${IMAGE}"
+
+      - name: helm package (no push)
+        run: |
+          set -euo pipefail
+          helm package charts/br-svc-auth --version 0.0.0-smoke --app-version 0.0.0-smoke --destination "$(mktemp -d)"
