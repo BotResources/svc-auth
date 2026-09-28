@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 1.0.6 - 2026-09-28
+
+Security patch (registry patch `01a0e96f-cc9c-7aa7-8515-0ae152535eb7`).
+Dependency bumps plus the removal of the hard-coded localhost CORS layer; no
+change to the service wire (HTTP endpoints, cookies, NATS KV contract) and no
+new configuration key.
+
+### Security
+
+- **rustls 0.23.40 → 0.23.45, rustls-webpki 0.103.13 → 0.103.15**
+  (RUSTSEC-2026-0285, CVSS 5.3: TLS 1.3 handshake messages accepted across
+  encryption-level boundaries; client role only). Paths:
+  `svc-auth → reqwest → hyper-rustls → rustls` — the OIDC discovery, JWKS and
+  token client, the most exposed TLS client of the platform — and
+  `br-util-nats-fabric → async-nats → tokio-rustls → rustls`.
+- **chacha20 0.10.0 (yanked) → 0.10.2** (`br-util-nats-fabric → async-nats →
+  rand 0.10.1 → chacha20`).
+- Entries that are not linked into the release binary are bumped for a clean
+  audit: **anyhow 1.0.102 → 1.0.104** (RUSTSEC-2026-0190, unsound;
+  lockfile-only — listed under the `wit-bindgen` / `wasm-metadata` tree, which
+  no target of this build resolves) and **spin 0.9.8 (yanked) → 0.9.9**
+  (test graph only: `oidc-test-idp → rsa → num-bigint-dig → lazy_static →
+  spin`). `cargo tree -p svc-auth -i <crate> -e normal,build --target all`
+  prints nothing for either.
+- **The hard-coded `CorsLayer` is removed** (it allowed
+  `http://localhost:5173` and `http://localhost:3000` with credentials, in
+  every environment). CORS belongs to the edge: the gateway's nginx answers
+  CORS for its per-environment `cors.origins` on the same `/auth/*` routes and
+  answers the preflights itself, so the layer only ever added allow headers
+  for localhost origins — in prod too. Browsers reach `/auth/*` same-origin
+  through the gateway (the Vite dev server proxies `/auth/` to it). The direct
+  `tower-http` dependency, used only by that layer, is dropped; `tower-http`
+  stays a transitive dependency of `reqwest`. No new configuration key.
+
+### Changed
+
+- CI: the stale `cargo audit --ignore RUSTSEC-2026-0049` is dropped
+  (rustls-webpki is ≥ 0.103.10 since before this release).
+- `deny.toml`: the rsa ignore (RUSTSEC-2023-0071) now carries its reason —
+  dev-only through the test OIDC provider `oidc-test-idp`, not linked into the
+  binary, no fixed rsa release (checked 2026-09-28) — and what retires it.
+- Helm chart `br-svc-auth`: `version` / `appVersion` 1.0.5 → 1.0.6 only;
+  templates and values are unchanged.
+- `PORT` / `ENVIRONMENT` handling is unchanged.
+
 ## 1.0.5 - 2026-09-08
 
 ### Added

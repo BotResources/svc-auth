@@ -4,7 +4,30 @@ all-features = false
 no-default-features = false
 
 [advisories]
+# Resolve advisories by bumping, not by ignoring them. An entry added here MUST
+# say which crate pulls the vulnerable code in, why that path is unreachable in
+# this service's threat model, the upstream status with the date it was checked,
+# and what retires the ignore.
 ignore = [
+    # RUSTSEC-2023-0071 — rsa (Marvin Attack: timing side channel in RSA
+    # private-key operations).
+    #
+    # Why: rsa enters only the test graph. The dev-dependency br-test-harness
+    # (feature `oidc`) pulls oidc-test-idp, the in-process test OIDC provider
+    # that signs the e2e suite's id_tokens with a throwaway RSA key. The release
+    # binary does not link rsa: `cargo tree -p svc-auth -i rsa -e normal
+    # --target all` prints nothing (checked 2026-09-28). svc-auth verifies
+    # provider signatures through jsonwebtoken, which uses ring, not rsa. The
+    # only rsa private-key operation runs in a test process, on a test key.
+    #
+    # Upstream status (checked 2026-09-28): no fixed rsa version. The advisory
+    # still lists `patched = []`; the newest stable rsa is 0.9.10 and 0.10 has
+    # only release candidates. Retire this ignore when rsa ships a fix, or when
+    # oidc-test-idp no longer depends on rsa.
+    #
+    # Tools: cargo audit reads Cargo.lock and cargo deny reads the graph with
+    # its dev-dependencies, so both report the advisory and both need this
+    # ignore. Mirrored in .github/workflows/ci.yml (`cargo audit --ignore ...`).
     "RUSTSEC-2023-0071",
 ]
 
