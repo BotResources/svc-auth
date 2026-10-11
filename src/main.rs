@@ -2,14 +2,12 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Router;
-use axum::http::{HeaderName, Method};
 use axum::routing::{get, post};
 use br_util_axum_readiness::{ReadinessHandle, readiness_route};
 use br_util_nats_fabric::Fabric;
 use br_util_observability::{
     http_metrics_layer, init_logging, init_metrics, liveness_route, metrics_route,
 };
-use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use svc_auth::AppState;
 use svc_auth::bearer_validator::BearerValidator;
@@ -125,18 +123,6 @@ async fn main() {
         readiness.set_not_ready("NATS KV buckets unreachable");
     }
 
-    let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list([
-            "http://localhost:5173".parse().unwrap(),
-            "http://localhost:3000".parse().unwrap(),
-        ]))
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers([
-            HeaderName::from_static("content-type"),
-            HeaderName::from_static("authorization"),
-        ])
-        .allow_credentials(true);
-
     let app = Router::new()
         .route("/auth/check", get(svc_auth::auth_check::auth_check_handler))
         .route("/auth/token", post(svc_auth::token::token_handler))
@@ -146,8 +132,7 @@ async fn main() {
         .route("/livez", liveness_route())
         .route("/readyz", readiness_route(readiness))
         .route("/metrics", metrics_route(metrics))
-        .layer(http_metrics_layer())
-        .layer(cors);
+        .layer(http_metrics_layer());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     tracing::info!("svc-auth listening on {addr}");
