@@ -9,7 +9,7 @@ resolver = "3"
 [package]
 name = "svc-auth"
 description = "Portable, infra-light authentication gatekeeper: multi-provider OIDC id_token to internal JWT (HttpOnly cookies), refresh-token rotation with reuse detection, and bearer-token validation over NATS KV (no database)."
-version = "1.0.5"
+version = "1.0.6"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -19,7 +19,6 @@ repository = "https://github.com/BotResources/svc-auth"
 tokio = { version = "1", features = ["full"] }
 
 axum = { version = "0.8" }
-tower-http = { version = "0.6", features = ["cors"] }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

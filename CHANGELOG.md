@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## 1.0.6 - 2026-10-11
+
+### Security
+
+- `rustls` 0.23.40 -> **0.23.45** (RUSTSEC-2026-0285, the TLS client used for OIDC discovery and JWKS fetches); `rustls-webpki` follows to 0.103.15.
+- Yanked `chacha20` 0.10.0 -> **0.10.2** (lockfile only).
+
+### Removed
+
+- The hard-coded `http://localhost:5173` / `http://localhost:3000` CORS allow-list and the `tower-http` dependency with it. svc-auth now emits no CORS headers; nginx is the one CORS authority.
+
 ## 1.0.5 - 2026-09-08
 
 ### Added
