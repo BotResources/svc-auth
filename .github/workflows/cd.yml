@@ -44,6 +44,13 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # The job runs as root inside br-arc-runner, but the checkout is owned by
+      # the host's runner user: without this, every git command below dies with
+      # "detected dubious ownership" (the tag gate then read that as "no tag
+      # yet" and republished the current release).
+      - name: trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: resolve version + gate
         id: ver
         run: |
@@ -52,7 +59,9 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
-          if git tag -l "$tag" | grep -q .; then
+          # Fail closed: a git failure must abort the job, not look like "no tag".
+          existing="$(git tag -l "$tag")"
+          if [[ -n "$existing" ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "::notice::Tag $tag already exists — nothing to publish"
           else

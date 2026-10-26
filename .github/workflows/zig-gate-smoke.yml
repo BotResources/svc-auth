@@ -1,0 +1,66 @@
+# TEMPORARY — delete this file before merging the PR that adds it.
+#
+# Proves the tag gate in cd.yml's `publish` job works inside br-arc-runner on a
+# GitHub-hosted runner. It publishes NOTHING: no image, chart, tag or registry
+# write. Regression it guards: as root in the container, git refused the
+# checkout ("detected dubious ownership"), `git tag -l | grep -q .` read that
+# as "no tag yet" and the job republished the current release.
+name: zig-gate-smoke
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/cd.yml
+      - .github/workflows/zig-gate-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/botresources/br-arc-runner:latest
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: control — git refuses the checkout before the fix
+        run: |
+          set +e
+          out="$(git tag -l v1.0.6 2>&1)"; rc=$?
+          echo "rc=$rc"; echo "$out"
+          [[ $rc -ne 0 ]] || { echo "::error::control did not fail; this smoke would prove nothing"; exit 1; }
+
+      # The step under test, extracted verbatim from cd.yml.
+      - name: apply the fix exactly as cd.yml does
+        run: |
+          yq '.jobs.publish.steps[] | select(.name == "trust the checkout") | .run' .github/workflows/cd.yml > /tmp/trust.sh
+          cat /tmp/trust.sh
+          [[ -s /tmp/trust.sh ]] || { echo "::error::step 'trust the checkout' not found in cd.yml"; exit 1; }
+          bash -e /tmp/trust.sh
+
+      - name: run the real gate script from cd.yml against the existing tag
+        run: |
+          yq '.jobs.publish.steps[] | select(.id == "ver") | .run' .github/workflows/cd.yml > /tmp/gate.sh
+          export GITHUB_OUTPUT=/tmp/gate.out; : > "$GITHUB_OUTPUT"
+          bash -e -o pipefail /tmp/gate.sh
+          cat "$GITHUB_OUTPUT"
+          grep -qx 'skip=true' "$GITHUB_OUTPUT" || { echo "::error::gate did not skip an existing release"; exit 1; }
+          echo "OK: the gate skips the already-released version"
+
+      - name: the gate fails closed when git is broken
+        run: |
+          yq '.jobs.publish.steps[] | select(.id == "ver") | .run' .github/workflows/cd.yml > /tmp/gate.sh
+          export GITHUB_OUTPUT=/tmp/gate2.out; : > "$GITHUB_OUTPUT"
+          if GIT_DIR=/nonexistent bash -e -o pipefail /tmp/gate.sh; then
+            echo "::error::gate exited 0 with broken git (fails open)"; cat "$GITHUB_OUTPUT"; exit 1
+          fi
+          ! grep -q 'skip=false' "$GITHUB_OUTPUT" || { echo "::error::gate wrote skip=false with broken git"; exit 1; }
+          echo "OK: broken git aborts the job; it never says skip=false"
