@@ -1,7 +1,7 @@
 # TEMPORARY — drop this commit before merging the PR that adds it.
 #
 # Proves that cd.yml's `publish` job works on a GitHub-hosted runner inside
-# `ghcr.io/botresources/br-arc-runner:stable`, with no mlugg/setup-zig:
+# `ghcr.io/botresources/br-arc-runner:latest`, with no mlugg/setup-zig:
 # same container, same build path, but nothing is pushed, tagged, or posed
 # to the registry. It exercises the points where the container differs from
 # the bare VM: the runner user vs the host's docker.sock, zig/cargo-zigbuild,
@@ -32,7 +32,7 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/botresources/br-arc-runner:stable
+      image: ghcr.io/botresources/br-arc-runner:latest
       # root: the image's `runner` user is in docker gid 123, the hosted VM's
       # /var/run/docker.sock is gid 118 — as `runner`, every docker call is
       # "permission denied". The VM is discarded after the job, so running
