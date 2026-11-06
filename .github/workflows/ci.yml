@@ -20,7 +20,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref || github.ref_name }}
 
@@ -57,13 +57,13 @@ jobs:
     needs: fmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           version: v3.16.2
 
@@ -84,7 +84,7 @@ jobs:
     needs: fmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: install supply-chain tools
         uses: taiki-e/install-action@v2
@@ -104,7 +104,7 @@ jobs:
     name: changelog entry present
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: check changelog has entry for current version
         shell: bash
@@ -124,7 +124,7 @@ jobs:
     name: registry gate (bumped version sealed in the registry)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -165,10 +165,10 @@ jobs:
     name: trufflehog (secret scan)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: trufflesecurity/trufflehog@main
+      - uses: trufflesecurity/trufflehog@ea68ca03c865c5f324e86e849ced20ed3cf9dbbb # v3.99.8
         with:
           extra_args: --only-verified
 
@@ -176,18 +176,39 @@ jobs:
     name: shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ludeeus/action-shellcheck@master
+      - uses: actions/checkout@v7
+      - name: install shellcheck
+        uses: taiki-e/install-action@v2
         with:
-          scandir: scripts
-          severity: warning
+          tool: shellcheck
+      - name: shellcheck
+        env:
+          SCANDIR: scripts
+          SEVERITY: warning
+        run: |
+          # Same selection as ludeeus/action-shellcheck 2.0.0: shell file names
+          # under SCANDIR, plus extensionless executables with a sh shebang.
+          mapfile -d '' files < <(
+            find "$SCANDIR" -path '*/.git' -prune -o -type f ! -name '*.go' \
+              \( -name '*.sh' -o -name '*.bash' -o -name '*.zsh' -o -name '*.shlib' \) -print0
+            find "$SCANDIR" -path '*/.git' -prune -o -type f ! -name '*.*' -perm /111 -print0 |
+              while IFS= read -r -d '' f; do
+                head -n1 "$f" | grep -Eqs '^#! */[^ ]*/(env *)?[abk]*sh' && printf '%s\0' "$f"
+              done
+          )
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::no shell files found under $SCANDIR"
+            exit 1
+          fi
+          printf '%s\n' "${files[@]}"
+          shellcheck ${SEVERITY:+--severity="$SEVERITY"} --format=gcc "${files[@]}"
 
   e2e:
     name: e2e
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -208,11 +229,11 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
 
